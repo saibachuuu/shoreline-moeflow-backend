@@ -493,3 +493,43 @@ class ProjectFinishPlanAPI(MoeAPIView):
             raise NoPermissionError
         project.cancel_finish_plan()
         return {"message": gettext("完结计划取消成功")}
+
+
+class ProjectThumbnailAPI(MoeAPIView):
+    @token_required
+    @fetch_model(Project)
+    def post(self, project: Project):
+        """
+        @api {post} /v1/projects/<project_id>/thumbnails 批量重新生成缩略图和采样图
+        @apiVersion 1.0.0
+        @apiName postProjectThumbnailsAPI
+        @apiGroup Project
+        @apiUse APIHeader
+        @apiUse TokenHeader
+
+        @apiSuccessExample {json} 返回示例
+        {
+            "message": "已为 50 张图片触发缩略图生成任务",
+            "count": 50
+        }
+        """
+        if not self.current_user.can(project, ProjectPermission.ACCESS):
+            raise NoPermissionError(gettext("您没有此项目的访问权限"))
+
+        from app.models.file import File
+        from app.tasks.thumbnail import create_thumbnail
+
+        images = File.objects(
+            project=project,
+            type=FileType.IMAGE,
+            activated=True,
+        )
+        count = 0
+        for image in images:
+            create_thumbnail(str(image.id))
+            count += 1
+
+        return {
+            "message": gettext(f"已为 {count} 张图片触发缩略图生成任务"),
+            "count": count,
+        }

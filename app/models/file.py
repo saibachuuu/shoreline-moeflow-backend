@@ -51,7 +51,7 @@ from app.models.term import Term
 
 if TYPE_CHECKING:
     from app.models.project import Project
-from app.tasks.file_parse import parse_text, safe
+from app.tasks.file_parse import parse_text
 from app.tasks.ocr import ocr
 from app.constants.source import SourcePositionType
 from app.constants.file import (
@@ -603,37 +603,25 @@ class File(Document):
     def cover_url(self):
         if not self.save_name:
             return ""
-        if current_app.config[
-            "STORAGE_TYPE"
-        ] == StorageType.LOCAL_STORAGE and not oss.is_exist(
-            current_app.config["OSS_FILE_PREFIX"],
-            self.save_name,
-            process_name=current_app.config["OSS_PROCESS_COVER_NAME"],
-        ):
-            return "generating"
+        # 直接返回 URL，跳过文件存在性检查以提高性能
+        save_name_prefix = self.save_name.rsplit(".", 1)[0]
         return oss.sign_url(
             current_app.config["OSS_FILE_PREFIX"],
-            self.save_name,
-            process_name=current_app.config["OSS_PROCESS_COVER_NAME"],
+            current_app.config["OSS_PROCESS_COVER_NAME"] + "-" + save_name_prefix + ".webp",
         )
 
     @property
-    def safe_check_url(self):
+    def resample_url(self):
         if not self.save_name:
             return ""
-        if current_app.config[
-            "STORAGE_TYPE"
-        ] == StorageType.LOCAL_STORAGE and not oss.is_exist(
-            current_app.config["OSS_FILE_PREFIX"],
-            self.save_name,
-            process_name=current_app.config["OSS_PROCESS_SAFE_CHECK_NAME"],
-        ):
-            return "generating"
+        # 直接返回 URL，跳过文件存在性检查以提高性能
+        save_name_prefix = self.save_name.rsplit(".", 1)[0]
         return oss.sign_url(
             current_app.config["OSS_FILE_PREFIX"],
-            self.save_name,
-            process_name=current_app.config["OSS_PROCESS_SAFE_CHECK_NAME"],
+            current_app.config["OSS_PROCESS_RESAMPLE_NAME"] + "-" + save_name_prefix + ".webp",
         )
+
+    # 注意：safe_check_url 已移除，使用 cover_url 代替
 
     @only_file
     def has_real_file(self):
@@ -650,21 +638,12 @@ class File(Document):
         )
 
     @only_file
-    def upload_real_file(
-        self, real_file: Union[BufferedReader, BinaryIO], do_safe_scan=False
-    ):
+    def upload_real_file(self, real_file: Union[BufferedReader, BinaryIO]):
         """
         上传源文件
         """
         # 尝试删除源文件
         self.delete_real_file()
-        # 重置安全检测数据
-        self.update(
-            safe_status=FileSafeStatus.NEED_MACHINE_CHECK,
-            unset__safe_task_id=1,
-            unset__safe_result_id=1,
-            unset__safe_start_time=1,
-        )
         # 生成用于保存的名称
         filename = Filename(self.name)
         save_name = str(ObjectId()) + "." + filename.suffix
@@ -672,12 +651,43 @@ class File(Document):
         md5 = get_file_md5(real_file)
         # 文件大小
         file_size = math.ceil(get_file_size(real_file))  # 获取文件大小，去掉小数
-        # 将文件上传到OSS
-        oss_result = oss.upload(
-            current_app.config["OSS_FILE_PREFIX"], save_name, real_file
-        )
+        
+        # 1. 保存到临时文件夹
+        import tempfile
+        import os
+        
+        temp_dir = tempfile.gettempdir()
+        temp_file_path = os.path.join(temp_dir, save_name)
+        
+        # 写入临时文件
+        real_file.seek(0)  # 重置文件指针
+        with open(temp_file_path, "wb") as f:
+            f.write(real_file.read())
+        
+        # 2. 生成缩略图（仅本地存储）
+        if (
+            self.type == FileType.IMAGE
+            and current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE
+        ):
+            # 先更新 save_name，以便缩略图生成时使用
+            self.update(save_name=save_name)
+            # 从临时文件生成缩略图
+            create_thumbnail(str(self.id), run_sync=True, image_path=temp_file_path)
+        
+        # 3. 上传到 OSS
+        with open(temp_file_path, "rb") as f:
+            oss_result = oss.upload(
+                current_app.config["OSS_FILE_PREFIX"], save_name, f
+            )
+        
+        # 4. 清理临时文件
+        try:
+            os.remove(temp_file_path)
+        except:
+            pass
+        
         # 替换原存储名和md5
-        self.update(save_name=save_name, md5=md5)
+        self.update(md5=md5)
         # 更新文件大小，非激活修订版只更新自身文件大小
         if self.activated:
             self.inc_cache("file_size", file_size - self.file_size)
@@ -685,17 +695,9 @@ class File(Document):
             self.update(file_size=file_size)
         # 更新修改时间
         self.update_cache("edit_time", datetime.datetime.utcnow())
-        # 检查文件安全性
-        if do_safe_scan:
-            self.safe_scan()
         # 文本自动解析生成 Source
         if self.type == FileType.TEXT:
             self.parse()
-        if (
-            self.type == FileType.IMAGE
-            and current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE
-        ):
-            create_thumbnail(str(self.id))
         self.reload()
         return oss_result
 
@@ -716,15 +718,13 @@ class File(Document):
         """
         # 如果是文件夹则跳过
         if self.has_real_file:
-            # 物理删除源文件
+            save_name_prefix = self.save_name.rsplit(".", 1)[0]
             oss_result = oss.delete(
                 current_app.config["OSS_FILE_PREFIX"],
                 [
                     self.save_name,
-                    current_app.config["OSS_PROCESS_COVER_NAME"] + "-" + self.save_name,
-                    current_app.config["OSS_PROCESS_SAFE_CHECK_NAME"]
-                    + "-"
-                    + self.save_name,
+                    current_app.config["OSS_PROCESS_COVER_NAME"] + "-" + save_name_prefix + ".webp",
+                    current_app.config["OSS_PROCESS_RESAMPLE_NAME"] + "-" + save_name_prefix + ".webp",
                 ],
             )
             # 初始化对象，并更新缓存计数
@@ -847,28 +847,6 @@ class File(Document):
 
         # 文本的翻译会单独列出
         raise NotImplementedError
-
-    @only_file
-    def safe_scan(self):
-        """
-        [不同类型分别处理]
-        文件安全检测
-        """
-        # 测试不进行文件安全检测
-        if current_app.config.get("TESTING", False):
-            return
-        if self.type == FileType.IMAGE:
-            # 将解析/图片鉴黄设置成排队中
-            self.update(safe_status=FileSafeStatus.QUEUING)
-            # 调用OCR解析图片中的文字，并生成原文
-            result = safe(str(self.id))
-            # 记录task_id，用于之后查询进度
-            self.update(safe_task_id=result.task_id)
-        # 文本暂无安全检测
-        elif self.type == FileType.TEXT:
-            pass
-        else:
-            logger.warning(f"没有为FileType({self.type}),设置相应safe_scan处理方案")
 
     @only_file
     @need_activated
@@ -1153,7 +1131,7 @@ class File(Document):
             )
             data["url"] = self.url
             data["cover_url"] = self.cover_url
-            data["safe_check_url"] = self.safe_check_url
+            data["resample_url"] = self.resample_url
             data["image_ocr_percent"] = self.image_ocr_percent
             data["image_ocr_percent_detail_name"] = ImageOCRPercent.get_detail_by_value(
                 self.image_ocr_percent, "name"

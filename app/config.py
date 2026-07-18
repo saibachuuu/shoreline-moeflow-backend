@@ -67,7 +67,7 @@ OSS_ACCESS_KEY_SECRET = env.get("OSS_ACCESS_KEY_SECRET", "")
 OSS_ENDPOINT = env.get("OSS_ENDPOINT", "")
 OSS_BUCKET_NAME = env.get("OSS_BUCKET_NAME", "")
 OSS_PROCESS_COVER_NAME = env.get("OSS_PROCESS_COVER_NAME", "cover")
-OSS_PROCESS_SAFE_CHECK_NAME = env.get("OSS_PROCESS_SAFE_CHECK_NAME", "safe-check")
+OSS_PROCESS_RESAMPLE_NAME = env.get("OSS_PROCESS_RESAMPLE_NAME", "resample")
 # 如果 OSS 绑定了 CDN 来加速，同时开启了 CDN 的 [阿里云 OSS 私有 Bucket 回源] 和 [URL 鉴权]，
 # 此时需要设置 STORAGE_DOMAIN 为 CDN 域名，且设置 OSS_VIA_CDN = True，
 # 这样程序将通过 CDN 的 URL 鉴权方式来生成 CDN URL，而不用 OSS 的 URL 签名鉴权
@@ -75,11 +75,7 @@ OSS_VIA_CDN = True if env.get("OSS_VIA_CDN", "") == "True" else False
 # CDN URL 鉴权主/备 KEY
 CDN_URL_KEY_A = env.get("CDN_URL_KEY_A", "")
 CDN_URL_KEY_B = env.get("CDN_URL_KEY_B", "")  # 备 KEY 暂未用到
-# -----------
-# 内容安全
-# -----------
-SAFE_ACCESS_KEY_ID = "-"
-SAFE_ACCESS_KEY_SECRET = "-"
+# 注意：内容安全(Safe Check)功能已移除
 # -----------
 # 各类储存前缀
 # -----------

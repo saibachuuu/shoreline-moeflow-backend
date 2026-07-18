@@ -20,6 +20,7 @@ class FileType(IntType):
             "png": FileType.IMAGE,
             "bmp": FileType.IMAGE,
             "gif": FileType.IMAGE,
+            "webp": FileType.IMAGE,
             "txt": FileType.TEXT,
         }
         t = suffix_type_map.get(suffix.lower(), FileType.UNKNOWN)
@@ -37,17 +38,15 @@ class FileNotExistReason:
 
 
 class FileSafeStatus:
-    """安全检查状态"""
+    """安全检查状态 - 已废弃，保留以兼容旧数据库"""
 
-    # 第一步
-    NEED_MACHINE_CHECK = 0  # 需要机器检测
-    QUEUING = 1  # 机器检测排队中
-    WAIT_RESULT = 2  # 机器检测等待结果
-    # 第二步（根据机器检测结果）
-    NEED_HUMAN_CHECK = 3  # 需要人工检查
-    # 第三步
-    SAFE = 4  # 已检测安全
-    BLOCK = 5  # 文件被删除屏蔽，需要重新上传
+    # 注意：此功能已移除，以下常量仅用于兼容旧数据
+    NEED_MACHINE_CHECK = 0
+    QUEUING = 1
+    WAIT_RESULT = 2
+    NEED_HUMAN_CHECK = 3
+    SAFE = 4
+    BLOCK = 5
 
 
 class ParseStatus(IntType):

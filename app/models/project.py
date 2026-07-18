@@ -1,5 +1,6 @@
 from app.exceptions.project import LabelplusParseFailedError
 import datetime
+import json
 import logging
 from typing import List, Union, BinaryIO, TYPE_CHECKING
 
@@ -387,6 +388,8 @@ class Project(GroupMixin, Document):
         db_field="ie", default=ImportFromLabelplusErrorType.UNKNOWN
     )
     import_from_labelplus_txt = StringField(db_field="it", default="")
+
+    workers = StringField(db_field="w", default="[]")
 
     # == GroupMixin ==
     default_role_system_code = "translator"
@@ -1048,6 +1051,10 @@ class Project(GroupMixin, Document):
                 self.import_from_labelplus_error_type, "name"
             ),
         }
+        try:
+            data["workers"] = json.loads(self.workers) if self.workers else []
+        except json.JSONDecodeError:
+            data["workers"] = []
         if with_team:
             data["team"] = self.team.to_api(user=user)
         if with_project_set:

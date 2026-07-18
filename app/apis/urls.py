@@ -2,9 +2,9 @@ from flask import Blueprint
 
 from app.apis.application import ApplicationAPI, ApplicationListAPI
 from app.apis.file import (
-    AdminFileListSafeCheckAPI,
     FileAPI,
     FileOCRAPI,
+    FileThumbnailAPI,
     ProjectFileListAPI,
     AdminFileListAPI,
 )
@@ -39,6 +39,12 @@ from app.apis.project import (
     ProjectResumeAPI,
     ProjectTargetListAPI,
     ProjectTargetOutputListAPI,
+    ProjectThumbnailAPI,
+)
+from app.apis.project_workers import (
+    ProjectWorkersAPI,
+    ProjectWorkersParseAPI,
+    ProjectWorkersAddAPI,
 )
 from app.apis.project_set import ProjectSetAPI
 
@@ -284,10 +290,15 @@ project.add_url_rule(  # TODO：准备删除
     methods=["POST", "DELETE", "OPTIONS"],
     view_func=ProjectDeletePlanAPI.as_view("project_delete_plan"),
 )
-project.add_url_rule(  # TODO：准备删除
+project.add_url_rule(
     "/<project_id>/finish-plan",
     methods=["POST", "DELETE", "OPTIONS"],
     view_func=ProjectFinishPlanAPI.as_view("project_finish_plan"),
+)
+project.add_url_rule(
+    "/<project_id>/thumbnails",
+    methods=["POST", "OPTIONS"],
+    view_func=ProjectThumbnailAPI.as_view("project_thumbnails"),
 )
 project.add_url_rule(
     "/<project_id>/resume",
@@ -319,6 +330,22 @@ project.add_url_rule(
     methods=["POST", "OPTIONS"],
     view_func=ProjectOCRAPI.as_view("project_ocr"),
 )
+# 项目工作人员管理
+project.add_url_rule(
+    "/<project_id>/workers",
+    methods=["GET", "PUT", "OPTIONS"],
+    view_func=ProjectWorkersAPI.as_view("project_workers"),
+)
+project.add_url_rule(
+    "/<project_id>/workers/parse",
+    methods=["POST", "OPTIONS"],
+    view_func=ProjectWorkersParseAPI.as_view("project_workers_parse"),
+)
+project.add_url_rule(
+    "/<project_id>/workers/add",
+    methods=["POST", "OPTIONS"],
+    view_func=ProjectWorkersAddAPI.as_view("project_workers_add"),
+)
 # 文件模块
 file = Blueprint("file", __name__, url_prefix=v1_prefix + "/files")
 file.add_url_rule(
@@ -335,6 +362,11 @@ file.add_url_rule(
     "/<file_id>/ocr",
     methods=["POST", "OPTIONS"],
     view_func=FileOCRAPI.as_view("file_ocr"),
+)
+file.add_url_rule(
+    "/<file_id>/thumbnail",
+    methods=["POST", "OPTIONS"],
+    view_func=FileThumbnailAPI.as_view("file_thumbnail"),
 )
 # 原文模块
 source = Blueprint("source", __name__, url_prefix=v1_prefix + "/sources")
@@ -435,11 +467,7 @@ admin.add_url_rule(
     methods=["GET", "OPTIONS"],
     view_func=AdminFileListAPI.as_view("admin_file_list"),
 )
-admin.add_url_rule(
-    "/files/safe-status",
-    methods=["PUT", "OPTIONS"],
-    view_func=AdminFileListSafeCheckAPI.as_view("admin_file_list_safe_check"),
-)
+# 注意：AdminFileListSafeCheckAPI 路由已移除
 admin.add_url_rule(
     "/admin-status",
     methods=["PUT", "OPTIONS"],

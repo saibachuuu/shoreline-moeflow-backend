@@ -18,7 +18,6 @@ from app.validators.file import (
     FileUploadSchema,
     FileGetSchema,
 )
-from app.constants.file import FileSafeStatus
 from flask_apikit.exceptions import ValidateError
 from flask_apikit.utils import QueryParser
 
@@ -291,26 +290,42 @@ class FileOCRAPI(MoeAPIView):
 class AdminFileListAPI(MoeAPIView):
     @admin_required
     def get(self):
+        # 注意：safe_status 过滤已移除，但保留查询参数以兼容旧代码
         query = self.get_query({"safe_status": [int]}, AdminFileSearchSchema())
         p = MoePagination()
-        db_query = {}
-        if query["safe_status"]:
-            db_query["safe_status__in"] = query["safe_status"]
+        # 忽略 safe_status 过滤，返回所有文件
         files = (
-            File.objects(**db_query).skip(p.skip).limit(p.limit).order_by("-edit_time")
+            File.objects().skip(p.skip).limit(p.limit).order_by("-edit_time")
         )
         return p.set_objects(files)
 
 
-class AdminFileListSafeCheckAPI(MoeAPIView):
-    @admin_required
-    def put(self):
-        data = self.get_json()
-        safe_file_ids = data.get("safe_files", [])
-        unsafe_file_ids = data.get("unsafe_files", [])
-        File.objects(id__in=safe_file_ids).update(safe_status=FileSafeStatus.SAFE)
-        unsafe_files = File.objects(id__in=unsafe_file_ids)
-        unsafe_files.update(safe_status=FileSafeStatus.BLOCK)
-        for file in unsafe_files:
-            file.delete_real_file(file_not_exist_reason=FileNotExistReason.BLOCK)
-        return {"message": gettext("处理成功")}
+class FileThumbnailAPI(MoeAPIView):
+    @token_required
+    @fetch_model(File)
+    def post(self, file: File):
+        """
+        @api {post} /v1/files/<file_id>/thumbnail 重新生成缩略图和采样图
+        @apiVersion 1.0.0
+        @apiName postFileThumbnailAPI
+        @apiGroup File
+        @apiUse APIHeader
+        @apiUse TokenHeader
+
+        @apiSuccessExample {json} 返回示例
+        {
+            "message": "缩略图生成任务已触发"
+        }
+        """
+        if not self.current_user.can(file.project, ProjectPermission.ACCESS):
+            raise NoPermissionError(gettext("您没有此项目的访问权限"))
+        if file.type != FileType.IMAGE:
+            raise NoPermissionError(gettext("仅图片文件可生成缩略图"))
+
+        from app.tasks.thumbnail import create_thumbnail
+
+        create_thumbnail(str(file.id))
+        return {"message": gettext("缩略图生成任务已触发")}
+
+
+# 注意：AdminFileListSafeCheckAPI 已移除
