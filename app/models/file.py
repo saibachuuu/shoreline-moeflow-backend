@@ -2,7 +2,10 @@ from io import BufferedReader
 from typing import TYPE_CHECKING, List, NoReturn, Optional, Union, BinaryIO
 import datetime
 import math
+import os
 import re
+import shutil
+import tempfile
 import mongoengine
 import logging
 from bson import ObjectId
@@ -601,27 +604,27 @@ class File(Document):
 
     @property
     def cover_url(self):
-        if not self.save_name:
-            return ""
-        # 直接返回 URL，跳过文件存在性检查以提高性能
-        save_name_prefix = self.save_name.rsplit(".", 1)[0]
-        return oss.sign_url(
-            current_app.config["OSS_FILE_PREFIX"],
-            current_app.config["OSS_PROCESS_COVER_NAME"] + "-" + save_name_prefix + ".webp",
-        )
+        return self._processed_image_url(current_app.config["OSS_PROCESS_COVER_NAME"])
 
     @property
     def resample_url(self):
-        if not self.save_name:
-            return ""
-        # 直接返回 URL，跳过文件存在性检查以提高性能
-        save_name_prefix = self.save_name.rsplit(".", 1)[0]
-        return oss.sign_url(
-            current_app.config["OSS_FILE_PREFIX"],
-            current_app.config["OSS_PROCESS_RESAMPLE_NAME"] + "-" + save_name_prefix + ".webp",
+        return self._processed_image_url(
+            current_app.config["OSS_PROCESS_RESAMPLE_NAME"]
         )
 
-    # 注意：safe_check_url 已移除，使用 cover_url 代替
+    def _processed_image_url(self, process_name):
+        if not self.save_name:
+            return ""
+
+        file_prefix = current_app.config["OSS_FILE_PREFIX"]
+        if current_app.config["STORAGE_TYPE"] == StorageType.OSS:
+            return oss.sign_url(file_prefix, self.save_name, process_name=process_name)
+
+        save_name_prefix = self.save_name.rsplit(".", 1)[0]
+        processed_name = f"{process_name}-{save_name_prefix}.webp"
+        if not oss.is_exist(file_prefix, processed_name):
+            return "generating"
+        return oss.sign_url(file_prefix, processed_name)
 
     @only_file
     def has_real_file(self):
@@ -651,43 +654,37 @@ class File(Document):
         md5 = get_file_md5(real_file)
         # 文件大小
         file_size = math.ceil(get_file_size(real_file))  # 获取文件大小，去掉小数
-        
-        # 1. 保存到临时文件夹
-        import tempfile
-        import os
-        
-        temp_dir = tempfile.gettempdir()
-        temp_file_path = os.path.join(temp_dir, save_name)
-        
-        # 写入临时文件
-        real_file.seek(0)  # 重置文件指针
-        with open(temp_file_path, "wb") as f:
-            f.write(real_file.read())
-        
-        # 2. 生成缩略图（仅本地存储）
-        if (
-            self.type == FileType.IMAGE
-            and current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE
-        ):
-            # 先更新 save_name，以便缩略图生成时使用
-            self.update(save_name=save_name)
-            # 从临时文件生成缩略图
-            create_thumbnail(str(self.id), run_sync=True, image_path=temp_file_path)
-        
-        # 3. 上传到 OSS
-        with open(temp_file_path, "rb") as f:
-            oss_result = oss.upload(
-                current_app.config["OSS_FILE_PREFIX"], save_name, f
-            )
-        
-        # 4. 清理临时文件
+
+        # Stage the upload so local thumbnail generation and OSS upload read the
+        # same bytes without consuming the caller's file object.
+        with tempfile.NamedTemporaryFile(
+            prefix="moeflow-", suffix="-" + save_name, delete=False
+        ) as temp_file:
+            temp_file_path = temp_file.name
+            real_file.seek(0)
+            shutil.copyfileobj(real_file, temp_file)
+
         try:
-            os.remove(temp_file_path)
-        except:
-            pass
-        
-        # 替换原存储名和md5
-        self.update(md5=md5)
+            if (
+                self.type == FileType.IMAGE
+                and current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE
+            ):
+                # The thumbnail task reads the model's save_name.
+                self.update(save_name=save_name)
+                create_thumbnail(str(self.id), run_sync=True, image_path=temp_file_path)
+
+            with open(temp_file_path, "rb") as upload_file:
+                oss_result = oss.upload(
+                    current_app.config["OSS_FILE_PREFIX"], save_name, upload_file
+                )
+        finally:
+            try:
+                os.remove(temp_file_path)
+            except OSError:
+                logger.warning("Failed to remove upload temp file %s", temp_file_path)
+
+        # Persist the new object name for every storage mode and file type.
+        self.update(save_name=save_name, md5=md5)
         # 更新文件大小，非激活修订版只更新自身文件大小
         if self.activated:
             self.inc_cache("file_size", file_size - self.file_size)
@@ -718,14 +715,24 @@ class File(Document):
         """
         # 如果是文件夹则跳过
         if self.has_real_file:
-            save_name_prefix = self.save_name.rsplit(".", 1)[0]
+            filenames = [self.save_name]
+            if current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE:
+                save_name_prefix = self.save_name.rsplit(".", 1)[0]
+                filenames.extend(
+                    [
+                        current_app.config["OSS_PROCESS_COVER_NAME"]
+                        + "-"
+                        + save_name_prefix
+                        + ".webp",
+                        current_app.config["OSS_PROCESS_RESAMPLE_NAME"]
+                        + "-"
+                        + save_name_prefix
+                        + ".webp",
+                    ]
+                )
             oss_result = oss.delete(
                 current_app.config["OSS_FILE_PREFIX"],
-                [
-                    self.save_name,
-                    current_app.config["OSS_PROCESS_COVER_NAME"] + "-" + save_name_prefix + ".webp",
-                    current_app.config["OSS_PROCESS_RESAMPLE_NAME"] + "-" + save_name_prefix + ".webp",
-                ],
+                filenames,
             )
             # 初始化对象，并更新缓存计数
             if init_obj:

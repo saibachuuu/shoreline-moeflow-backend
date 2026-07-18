@@ -24,7 +24,6 @@ from app.constants.file import FileNotExistReason, FileType
 from app.utils.file import get_file_size
 from app.utils.hash import get_file_md5
 from tests import TEST_FILE_PATH, MoeTestCase
-from app.constants.file import FileSafeStatus
 
 
 class FileModelTestCase(MoeTestCase):
@@ -264,23 +263,25 @@ class FileModelTestCase(MoeTestCase):
                 self.assertEqual("A.JPg", file2.name)
                 self.assertEqual(file1, file2)
 
-    def test_upload_file_reset_safe_status(self):
-        """测试覆盖文件时，会重置安全检查状态"""
+    def test_upload_image_creates_webp_derivatives(self):
+        """上传图片时会生成缩略图和采样图。"""
         with self.app.test_request_context():
-            with open(os.path.join(TEST_FILE_PATH, "1kbA.txt"), "rb") as file:
-                # 测试用项目、团队
+            with open(os.path.join(TEST_FILE_PATH, "2kb.png"), "rb") as file:
                 team = Team.create("t1")
                 project = Project.create("p1", team=team)
-                # 上传文件
-                file1 = project.upload("1.jpg", file)
-                self.assertEqual(file1.safe_status, FileSafeStatus.NEED_MACHINE_CHECK)
-                file1.update(safe_status=FileSafeStatus.SAFE)
-                file1.reload()
-                self.assertEqual(file1.safe_status, FileSafeStatus.SAFE)
-                # 覆盖文件，将重置安全检查状态
-                project.upload("1.jpg", file)
-                file1.reload()
-                self.assertEqual(file1.safe_status, FileSafeStatus.NEED_MACHINE_CHECK)
+                image = project.upload("1.png", file)
+                save_name_prefix = image.save_name.rsplit(".", 1)[0]
+                cover_name = f"cover-{save_name_prefix}.webp"
+                resample_name = f"resample-{save_name_prefix}.webp"
+
+                self.assertTrue(
+                    oss.is_exist(self.app.config["OSS_FILE_PREFIX"], cover_name)
+                )
+                self.assertTrue(
+                    oss.is_exist(self.app.config["OSS_FILE_PREFIX"], resample_name)
+                )
+                self.assertTrue(image.cover_url.endswith(cover_name))
+                self.assertTrue(image.resample_url.endswith(resample_name))
 
     def test_file_md5(self):
         """测试md5的获取"""

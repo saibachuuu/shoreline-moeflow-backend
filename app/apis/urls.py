@@ -467,7 +467,6 @@ admin.add_url_rule(
     methods=["GET", "OPTIONS"],
     view_func=AdminFileListAPI.as_view("admin_file_list"),
 )
-# 注意：AdminFileListSafeCheckAPI 路由已移除
 admin.add_url_rule(
     "/admin-status",
     methods=["PUT", "OPTIONS"],

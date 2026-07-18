@@ -19,6 +19,7 @@ from app.models.project import Project, ProjectPermission
 from app.models.target import Target
 from app.models.output import Output
 from app.constants.project import ProjectStatus
+from app.constants.storage import StorageType
 from app.validators.project import (
     EditProjectSchema,
     CreateProjectTargetSchema,
@@ -513,8 +514,13 @@ class ProjectThumbnailAPI(MoeAPIView):
             "count": 50
         }
         """
-        if not self.current_user.can(project, ProjectPermission.ACCESS):
+        if not self.current_user.can(project, ProjectPermission.CHANGE):
             raise NoPermissionError(gettext("您没有此项目的访问权限"))
+        if current_app.config["STORAGE_TYPE"] != StorageType.LOCAL_STORAGE:
+            return {
+                "message": gettext("当前存储模式无需重建缩略图"),
+                "count": 0,
+            }
 
         from app.models.file import File
         from app.tasks.thumbnail import create_thumbnail
@@ -530,6 +536,6 @@ class ProjectThumbnailAPI(MoeAPIView):
             count += 1
 
         return {
-            "message": gettext(f"已为 {count} 张图片触发缩略图生成任务"),
+            "message": gettext("已为 %(count)s 张图片触发缩略图生成任务", count=count),
             "count": count,
         }

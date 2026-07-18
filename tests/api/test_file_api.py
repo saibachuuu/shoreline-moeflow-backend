@@ -1,7 +1,7 @@
 import os
 
 from app import oss
-from app.constants.file import FileNotExistReason, FileSafeStatus, FileType
+from app.constants.file import FileType
 from app.exceptions import (
     FilenameIllegalError,
     FolderNotExistError,
@@ -463,69 +463,27 @@ class FileAPITestCase(MoeAPITestCase):
         data = self.get(f"/v1/projects/{str(project.id)}/files", token=token)
         self.assertErrorEqual(data, ProjectFinishedError)
 
-    def test_admin_file_safe_check1(self):
-        """测试管理员审核文件"""
+    def test_regenerate_file_thumbnail(self):
+        """项目成员可以重新生成单张图片的缩略图。"""
         with self.app.test_request_context():
             project = self.create_project("p", target_languages=Language.by_code("en"))
             user = self.get_creator(project)
-            user.admin = True
-            user.save()
             token = user.generate_token()
             with open(os.path.join(TEST_FILE_PATH, "2kb.png"), "rb") as file:
-                file1 = project.upload("1.jpg", file)
-                file1_save_name = file1.save_name
-                file2 = project.upload("2.jpg", file)
-                file2_save_name = file2.save_name
-                file3 = project.upload("3.jpg", file)
-                file3_save_name = file3.save_name
-                file4 = project.upload("4.jpg", file)
-                file4_save_name = file4.save_name
-                self.assertTrue(
-                    oss.is_exist(self.app.config["OSS_FILE_PREFIX"], file1_save_name)
+                image = project.upload("1.png", file)
+                save_name_prefix = image.save_name.rsplit(".", 1)[0]
+                cover_name = f"cover-{save_name_prefix}.webp"
+                resample_name = f"resample-{save_name_prefix}.webp"
+                oss.delete(
+                    self.app.config["OSS_FILE_PREFIX"],
+                    [cover_name, resample_name],
                 )
-                self.assertTrue(
-                    oss.is_exist(self.app.config["OSS_FILE_PREFIX"], file2_save_name)
-                )
-                self.assertTrue(
-                    oss.is_exist(self.app.config["OSS_FILE_PREFIX"], file3_save_name)
-                )
-                self.assertTrue(
-                    oss.is_exist(self.app.config["OSS_FILE_PREFIX"], file4_save_name)
-                )
-                self.assertEqual(file1.safe_status, FileSafeStatus.NEED_MACHINE_CHECK)
-                self.assertEqual(
-                    file1.file_not_exist_reason, FileNotExistReason.UNKNOWN
-                )
-                self.assertEqual(file3.safe_status, FileSafeStatus.NEED_MACHINE_CHECK)
-                self.assertEqual(
-                    file3.file_not_exist_reason, FileNotExistReason.UNKNOWN
-                )
-                data = self.put(
-                    "/v1/admin/files/safe-status",
-                    json={
-                        "safe_files": [str(file1.id), str(file2.id)],
-                        "unsafe_files": [str(file3.id), str(file4.id)],
-                    },
-                    token=token,
-                )
+
+                data = self.post(f"/v1/files/{str(image.id)}/thumbnail", token=token)
                 self.assertErrorEqual(data)
                 self.assertTrue(
-                    oss.is_exist(self.app.config["OSS_FILE_PREFIX"], file1_save_name)
+                    oss.is_exist(self.app.config["OSS_FILE_PREFIX"], cover_name)
                 )
                 self.assertTrue(
-                    oss.is_exist(self.app.config["OSS_FILE_PREFIX"], file2_save_name)
+                    oss.is_exist(self.app.config["OSS_FILE_PREFIX"], resample_name)
                 )
-                self.assertFalse(
-                    oss.is_exist(self.app.config["OSS_FILE_PREFIX"], file3_save_name)
-                )
-                self.assertFalse(
-                    oss.is_exist(self.app.config["OSS_FILE_PREFIX"], file4_save_name)
-                )
-                file1.reload()
-                file3.reload()
-                self.assertEqual(file1.safe_status, FileSafeStatus.SAFE)
-                self.assertEqual(
-                    file1.file_not_exist_reason, FileNotExistReason.UNKNOWN
-                )
-                self.assertEqual(file3.safe_status, FileSafeStatus.BLOCK)
-                self.assertEqual(file3.file_not_exist_reason, FileNotExistReason.BLOCK)

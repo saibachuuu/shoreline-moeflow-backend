@@ -4,17 +4,13 @@
 
 import datetime
 import re
-import uuid
 
 import chardet
-from celery.exceptions import MaxRetriesExceededError
-from flask import json
 
 from app import celery
 from app import oss
 from app.models import connect_db
 from app.constants.file import (
-    FileNotExistReason,
     FileType,
     FindTermsStatus,
     ParseErrorType,
@@ -118,14 +114,6 @@ def parse_text(file_id, /, *, old_revision_id=None, run_sync=False):
     else:
         # 异步执行
         return parse_text_task.delay(file_id, old_revision_id)
-
-
-# 注意：safe_task 和 safe_result_task 已移除
-# 保留函数签名以兼容旧代码调用
-def safe(file_id):
-    """已移除：安全检测功能"""
-    logger.warning(f"safe() function is deprecated, file_id: {file_id}")
-    return None
 
 
 @celery.task(name="tasks.find_terms_task", time_limit=1200)

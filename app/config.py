@@ -75,7 +75,6 @@ OSS_VIA_CDN = True if env.get("OSS_VIA_CDN", "") == "True" else False
 # CDN URL 鉴权主/备 KEY
 CDN_URL_KEY_A = env.get("CDN_URL_KEY_A", "")
 CDN_URL_KEY_B = env.get("CDN_URL_KEY_B", "")  # 备 KEY 暂未用到
-# 注意：内容安全(Safe Check)功能已移除
 # -----------
 # 各类储存前缀
 # -----------

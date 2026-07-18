@@ -1,19 +1,23 @@
 from app.exceptions.project import ProjectFinishedError
-from flask import request
+from flask import current_app, request
 from flask_babel import gettext
 
 from app.core.responses import MoePagination
 from app.core.views import MoeAPIView
 from app.decorators.auth import admin_required, token_required
 from app.decorators.url import fetch_model
-from app.exceptions import NoPermissionError, UploadFileNotFoundError
+from app.exceptions import (
+    FileTypeNotSupportError,
+    NoPermissionError,
+    UploadFileNotFoundError,
+)
 from app.models.file import File, FileTargetCache
 from app.models.project import Project, ProjectPermission
 from app.models.team import TeamPermission
+from app.constants.storage import StorageType
 from app.constants.project import ProjectStatus
-from app.constants.file import FileNotExistReason, FileType
+from app.constants.file import FileType
 from app.validators.file import (
-    AdminFileSearchSchema,
     FileSearchSchema,
     FileUploadSchema,
     FileGetSchema,
@@ -290,13 +294,8 @@ class FileOCRAPI(MoeAPIView):
 class AdminFileListAPI(MoeAPIView):
     @admin_required
     def get(self):
-        # 注意：safe_status 过滤已移除，但保留查询参数以兼容旧代码
-        query = self.get_query({"safe_status": [int]}, AdminFileSearchSchema())
         p = MoePagination()
-        # 忽略 safe_status 过滤，返回所有文件
-        files = (
-            File.objects().skip(p.skip).limit(p.limit).order_by("-edit_time")
-        )
+        files = File.objects().skip(p.skip).limit(p.limit).order_by("-edit_time")
         return p.set_objects(files)
 
 
@@ -320,12 +319,11 @@ class FileThumbnailAPI(MoeAPIView):
         if not self.current_user.can(file.project, ProjectPermission.ACCESS):
             raise NoPermissionError(gettext("您没有此项目的访问权限"))
         if file.type != FileType.IMAGE:
-            raise NoPermissionError(gettext("仅图片文件可生成缩略图"))
+            raise FileTypeNotSupportError(gettext("仅图片文件可生成缩略图"))
+        if current_app.config["STORAGE_TYPE"] != StorageType.LOCAL_STORAGE:
+            return {"message": gettext("当前存储模式无需重建缩略图"), "count": 0}
 
         from app.tasks.thumbnail import create_thumbnail
 
         create_thumbnail(str(file.id))
         return {"message": gettext("缩略图生成任务已触发")}
-
-
-# 注意：AdminFileListSafeCheckAPI 已移除

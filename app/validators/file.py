@@ -20,7 +20,3 @@ class FileGetSchema(DefaultSchema):
 
 class FileUploadSchema(DefaultSchema):
     parent_id = fields.Str(missing=None, validate=[object_id])
-
-
-class AdminFileSearchSchema(DefaultSchema):
-    safe_status = fields.List(fields.Int(), missing=[])
