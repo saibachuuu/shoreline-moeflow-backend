@@ -66,11 +66,26 @@ class OSS:
                 config["OSS_ACCESS_KEY_ID"],
                 config["OSS_ACCESS_KEY_SECRET"],
             )
-            self.bucket = oss2.Bucket(
-                self.auth,
-                config["OSS_ENDPOINT"],
-                config["OSS_BUCKET_NAME"],
-            )
+
+            oss_bucket_style = config.get("OSS_BUCKET_STYLE", "S3")
+            if oss_bucket_style == "R2":
+                # R2 路径风格：桶名直接拼接在 Endpoint 后，不使用虚拟主机风格
+                endpoint = (
+                    config["OSS_ENDPOINT"].rstrip("/") + "/" + config["OSS_BUCKET_NAME"]
+                )
+                self.bucket = oss2.Bucket(
+                    self.auth,
+                    endpoint,
+                    config["OSS_BUCKET_NAME"],
+                    is_cname=True,
+                )
+            else:
+                # S3 虚拟主机风格：桶名为子域名（默认）
+                self.bucket = oss2.Bucket(
+                    self.auth,
+                    config["OSS_ENDPOINT"],
+                    config["OSS_BUCKET_NAME"],
+                )
 
             self.oss_domain = config["STORAGE_DOMAIN"]
             self.oss_via_cdn = config["OSS_VIA_CDN"]

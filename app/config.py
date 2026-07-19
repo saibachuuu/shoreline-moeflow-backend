@@ -66,6 +66,8 @@ OSS_ACCESS_KEY_ID = env.get("OSS_ACCESS_KEY_ID", "")
 OSS_ACCESS_KEY_SECRET = env.get("OSS_ACCESS_KEY_SECRET", "")
 OSS_ENDPOINT = env.get("OSS_ENDPOINT", "")
 OSS_BUCKET_NAME = env.get("OSS_BUCKET_NAME", "")
+# Bucket 寻址风格: S3（虚拟主机风格，桶名为子域名）或 R2（路径风格，桶名直接拼接在 Endpoint 后）
+OSS_BUCKET_STYLE = env.get("OSS_BUCKET_STYLE", "S3")
 OSS_PROCESS_COVER_NAME = env.get("OSS_PROCESS_COVER_NAME", "cover")
 OSS_PROCESS_RESAMPLE_NAME = env.get("OSS_PROCESS_RESAMPLE_NAME", "resample")
 # 如果 OSS 绑定了 CDN 来加速，同时开启了 CDN 的 [阿里云 OSS 私有 Bucket 回源] 和 [URL 鉴权]，
@@ -78,10 +80,10 @@ CDN_URL_KEY_B = env.get("CDN_URL_KEY_B", "")  # 备 KEY 暂未用到
 # -----------
 # 各类储存前缀
 # -----------
-OSS_FILE_PREFIX = "files/"
-OSS_OUTPUT_PREFIX = "outputs/"
-OSS_USER_AVATAR_PREFIX = "user-avatars/"
-OSS_TEAM_AVATAR_PREFIX = "team-avatars/"
+OSS_FILE_PREFIX = "storage/files/"
+OSS_OUTPUT_PREFIX = "storage/outputs/"
+OSS_USER_AVATAR_PREFIX = "storage/user-avatars/"
+OSS_TEAM_AVATAR_PREFIX = "storage/team-avatars/"
 # -----------
 # 谷歌接口
 # -----------
