@@ -1,5 +1,5 @@
 """
-对接阿里云OSS储存服务
+对接阿里云OSS储存服务 / Cloudflare R2 (S3 兼容) 储存服务
 """
 
 from io import BufferedReader, BytesIO, FileIO
@@ -16,9 +16,50 @@ import oss2
 from oss2 import to_string
 from oss2.exceptions import NoSuchKey
 
+import boto3
+from botocore.exceptions import ClientError
+
 from app.constants.storage import StorageType
 
 logger = logging.getLogger(__name__)
+
+# HTTP 头部到 boto3 put_object 参数的映射
+_BOTO3_HEADER_MAP = {
+    "Cache-Control": "CacheControl",
+    "Content-Disposition": "ContentDisposition",
+    "Content-Encoding": "ContentEncoding",
+    "Content-Language": "ContentLanguage",
+    "Content-Type": "ContentType",
+    "Expires": "Expires",
+}
+
+
+def _boto3_put_kwargs_from_headers(headers):
+    """将 oss2 风格的 headers 转为 boto3 put_object 的关键字参数"""
+    if not headers:
+        return {}
+    kwargs = {}
+    for k, v in headers.items():
+        param = _BOTO3_HEADER_MAP.get(k)
+        if param:
+            if isinstance(v, bytes):
+                v = v.decode("utf-8")
+            kwargs[param] = v
+    return kwargs
+
+
+def _boto3_read_body(file):
+    """将 file 参数转为 boto3 put_object 的 Body 值"""
+    if isinstance(file, str):
+        return file.encode("utf-8")
+    if isinstance(file, bytes):
+        return file
+    if hasattr(file, "read"):
+        data = file.read()
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+        return data
+    return file
 
 
 def md5sum(src):
@@ -52,8 +93,11 @@ class OSS:
             self.init(config)
         else:
             self.storage_type = None
+            self.oss_bucket_style = None
             self.auth = None
             self.bucket = None
+            self.client = None
+            self.bucket_name = None
             self.oss_domain = None
             self.oss_via_cdn = None
             self.cdn_url_key = None
@@ -61,26 +105,21 @@ class OSS:
     def init(self, config):
         """配置初始化"""
         self.storage_type = config["STORAGE_TYPE"]
+        self.oss_bucket_style = config.get("OSS_BUCKET_STYLE", "S3")
         if self.storage_type == StorageType.OSS:
-            self.auth = oss2.Auth(
-                config["OSS_ACCESS_KEY_ID"],
-                config["OSS_ACCESS_KEY_SECRET"],
-            )
-
-            oss_bucket_style = config.get("OSS_BUCKET_STYLE", "S3")
-            if oss_bucket_style == "R2":
-                # R2 路径风格：桶名直接拼接在 Endpoint 后，不使用虚拟主机风格
-                endpoint = (
-                    config["OSS_ENDPOINT"].rstrip("/") + "/" + config["OSS_BUCKET_NAME"]
+            if self.oss_bucket_style == "R2":
+                self.client = boto3.client(
+                    "s3",
+                    endpoint_url=config["OSS_ENDPOINT"],
+                    aws_access_key_id=config["OSS_ACCESS_KEY_ID"],
+                    aws_secret_access_key=config["OSS_ACCESS_KEY_SECRET"],
                 )
-                self.bucket = oss2.Bucket(
-                    self.auth,
-                    endpoint,
-                    config["OSS_BUCKET_NAME"],
-                    is_cname=True,
-                )
+                self.bucket_name = config["OSS_BUCKET_NAME"]
             else:
-                # S3 虚拟主机风格：桶名为子域名（默认）
+                self.auth = oss2.Auth(
+                    config["OSS_ACCESS_KEY_ID"],
+                    config["OSS_ACCESS_KEY_SECRET"],
+                )
                 self.bucket = oss2.Bucket(
                     self.auth,
                     config["OSS_ENDPOINT"],
@@ -106,6 +145,15 @@ class OSS:
     ):
         """上传文件"""
         if self.storage_type == StorageType.OSS:
+            if self.oss_bucket_style == "R2":
+                key = path + filename
+                extra_kwargs = _boto3_put_kwargs_from_headers(headers)
+                return self.client.put_object(
+                    Bucket=self.bucket_name,
+                    Key=key,
+                    Body=_boto3_read_body(file),
+                    **extra_kwargs,
+                )
             return self.bucket.put_object(
                 path + filename,
                 file,
@@ -129,12 +177,35 @@ class OSS:
 
     def download(self, path, filename: str, /, *, local_path=None):
         """下载文件"""
-        # 如果提供local_path，则下载到本地
         if self.storage_type == StorageType.OSS:
-            if local_path:
-                self.bucket.get_object_to_file(path + filename, local_path)
+            if self.oss_bucket_style == "R2":
+                key = path + filename
+                if local_path:
+                    try:
+                        self.client.download_file(self.bucket_name, key, local_path)
+                    except ClientError as e:
+                        if e.response["Error"]["Code"] == "404":
+                            raise NoSuchKey(
+                                status=404, headers={}, body={}, details={}
+                            )
+                        raise
+                else:
+                    try:
+                        response = self.client.get_object(
+                            Bucket=self.bucket_name, Key=key
+                        )
+                        return BytesIO(response["Body"].read())
+                    except ClientError as e:
+                        if e.response["Error"]["Code"] == "404":
+                            raise NoSuchKey(
+                                status=404, headers={}, body={}, details={}
+                            )
+                        raise
             else:
-                return self.bucket.get_object(path + filename)
+                if local_path:
+                    self.bucket.get_object_to_file(path + filename, local_path)
+                else:
+                    return self.bucket.get_object(path + filename)
         else:
             folder_path = os.path.join(self.STORAGE_PATH, path)
             file_path = os.path.join(folder_path, filename)
@@ -150,6 +221,13 @@ class OSS:
     def is_exist(self, path, filename, process_name=None):
         """检查文件是否存在"""
         if self.storage_type == StorageType.OSS:
+            if self.oss_bucket_style == "R2":
+                key = path + filename
+                try:
+                    self.client.head_object(Bucket=self.bucket_name, Key=key)
+                    return True
+                except ClientError:
+                    return False
             return self.bucket.object_exists(path + filename)
         else:
             if os.path.isabs(path):
@@ -173,7 +251,19 @@ class OSS:
     def delete(self, path, filename: Union[str, list[str]]):
         """（批量）删除文件"""
         if self.storage_type == StorageType.OSS:
-            # 如果给予列表，则批量删除
+            if self.oss_bucket_style == "R2":
+                if isinstance(filename, list):
+                    if len(filename) == 0:
+                        return
+                    return self.client.delete_objects(
+                        Bucket=self.bucket_name,
+                        Delete={
+                            "Objects": [{"Key": path + name} for name in filename]
+                        },
+                    )
+                return self.client.delete_object(
+                    Bucket=self.bucket_name, Key=path + filename
+                )
             if isinstance(filename, list):
                 if len(filename) == 0:
                     return
@@ -185,7 +275,6 @@ class OSS:
             return result
         else:
             folder_path = os.path.join(self.STORAGE_PATH, path)
-            # 如果给予列表，则批量删除
             if isinstance(filename, list):
                 for name in filename:
                     if self.is_exist(folder_path, name):
@@ -197,7 +286,6 @@ class OSS:
     def rmdir(self, path):
         """（批量）删除文件夹，仅本地储存"""
         if self.storage_type == StorageType.LOCAL_STORAGE:
-            # 如果给予列表，则批量删除
             if isinstance(path, list):
                 for p in path:
                     folder_path = os.path.join(self.STORAGE_PATH, p)
@@ -210,10 +298,11 @@ class OSS:
 
     def sign_url(self, *args, **kwargs):
         if self.storage_type == StorageType.OSS:
+            if self.oss_bucket_style == "R2":
+                return self._sign_r2_url(*args, **kwargs)
             if self.oss_via_cdn:
                 return self._sign_cdn_url(*args, **kwargs)
-            else:
-                return self._sign_oss_url(*args, **kwargs)
+            return self._sign_oss_url(*args, **kwargs)
         else:
             return self._sign_local_url(*args, **kwargs)
 
@@ -245,12 +334,9 @@ class OSS:
         """
         通过 CDN 的 URL 鉴权生成可以访问的 URL，此时 oss_domain 需要是绑定于 CDN 的域名
         """
-        # 验证失效时间为1-8天，缓存失效时间为0-7天
-        # 过期时间对齐到下一个expires，以使用http缓存，过期时间最长为设置的时间的两倍
         now = int(time.time())
         delta = expires - now % expires
-        expires = delta + 86400  # 失效时间加一天，以免获取到url，下一秒就失效了
-        # 如果没有指定oss_domain，则使用配置中的STORAGE_DOMAIN
+        expires = delta + 86400
         if oss_domain is None:
             oss_domain = self.oss_domain
         uri = oss_domain + path + parse.quote(filename)
@@ -274,11 +360,8 @@ class OSS:
         """
         通过 OSS 的 URL 签名生成可以访问的 URL，默认使用配置中用户自定义的 OSS 域名
         """
-        # 验证失效时间为1-8天，缓存失效时间为0-7天
-        # 过期时间对齐到下一个expires，以使用http缓存，过期时间最长为设置的时间的两倍
         delta = expires - int(time.time()) % expires
-        expires = delta + 86400  # 失效时间加一天，以免获取到url，下一秒就失效了
-        # 如果没有指定oss_domain，则使用配置中的STORAGE_DOMAIN
+        expires = delta + 86400
         if oss_domain is None:
             oss_domain = self.oss_domain
         if params is None:
@@ -292,3 +375,24 @@ class OSS:
             method, oss_domain + parse.quote(key), headers=headers, params=params
         )
         return self.bucket.auth._sign_url(req, self.bucket.bucket_name, key, expires)
+
+    def _sign_r2_url(
+        self,
+        path,
+        filename,
+        expires=604800,
+        oss_domain=None,
+        process_name=None,
+        download=False,
+        **kwargs,
+    ):
+        """
+        通过 boto3 生成 R2 (S3 兼容) 预签名 URL
+        """
+        expires = int(expires)
+        params = {"Bucket": self.bucket_name, "Key": path + filename}
+        if download:
+            params["ResponseContentDisposition"] = "attachment"
+        return self.client.generate_presigned_url(
+            "get_object", Params=params, ExpiresIn=expires
+        )

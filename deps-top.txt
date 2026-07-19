@@ -22,6 +22,7 @@ Pillow==9.5.0                     # MUST NOT upgrade this, v10 requires code cha
 marshmallow==3.0.0b20             # 字段验证 (flask-apikit需要)
 requests==2.22.0                  # HTTP请求
 oss2==2.7.0                       # 阿里云OSS
+boto3==1.34.0                     # AWS SDK (用于 R2 / S3 兼容存储)
 celery==5.3.6                     # 任务调度
 celery[redis]==5.3.6
 flower==2.0.1                     # web ui for celery
