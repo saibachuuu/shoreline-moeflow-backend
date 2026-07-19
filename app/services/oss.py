@@ -98,6 +98,7 @@ class OSS:
             self.bucket = None
             self.client = None
             self.bucket_name = None
+            self.oss_key_prefix = None
             self.oss_domain = None
             self.oss_via_cdn = None
             self.cdn_url_key = None
@@ -115,6 +116,7 @@ class OSS:
                     aws_secret_access_key=config["OSS_ACCESS_KEY_SECRET"],
                 )
                 self.bucket_name = config["OSS_BUCKET_NAME"]
+                self.oss_key_prefix = "storage/"
             else:
                 self.auth = oss2.Auth(
                     config["OSS_ACCESS_KEY_ID"],
@@ -146,7 +148,7 @@ class OSS:
         """上传文件"""
         if self.storage_type == StorageType.OSS:
             if self.oss_bucket_style == "R2":
-                key = path + filename
+                key = self.oss_key_prefix + path + filename
                 extra_kwargs = _boto3_put_kwargs_from_headers(headers)
                 return self.client.put_object(
                     Bucket=self.bucket_name,
@@ -179,7 +181,7 @@ class OSS:
         """下载文件"""
         if self.storage_type == StorageType.OSS:
             if self.oss_bucket_style == "R2":
-                key = path + filename
+                key = self.oss_key_prefix + path + filename
                 if local_path:
                     try:
                         self.client.download_file(self.bucket_name, key, local_path)
@@ -222,7 +224,7 @@ class OSS:
         """检查文件是否存在"""
         if self.storage_type == StorageType.OSS:
             if self.oss_bucket_style == "R2":
-                key = path + filename
+                key = self.oss_key_prefix + path + filename
                 try:
                     self.client.head_object(Bucket=self.bucket_name, Key=key)
                     return True
@@ -258,11 +260,11 @@ class OSS:
                     return self.client.delete_objects(
                         Bucket=self.bucket_name,
                         Delete={
-                            "Objects": [{"Key": path + name} for name in filename]
+                            "Objects": [{"Key": self.oss_key_prefix + path + name} for name in filename]
                         },
                     )
                 return self.client.delete_object(
-                    Bucket=self.bucket_name, Key=path + filename
+                    Bucket=self.bucket_name, Key=self.oss_key_prefix + path + filename
                 )
             if isinstance(filename, list):
                 if len(filename) == 0:
@@ -387,10 +389,20 @@ class OSS:
         **kwargs,
     ):
         """
-        通过 boto3 生成 R2 (S3 兼容) 预签名 URL
+        生成 R2 (S3 兼容) 文件访问 URL
+
+        - CDN 模式（OSS_VIA_CDN=True）：基于 STORAGE_DOMAIN 直出，由 CDN / 反向代理负责回源
+        - 非 CDN 模式：通过 boto3 生成 S3 兼容预签名 URL
         """
+        if self.oss_via_cdn:
+            if oss_domain is None:
+                oss_domain = self.oss_domain
+            return oss_domain + path + parse.quote(filename)
         expires = int(expires)
-        params = {"Bucket": self.bucket_name, "Key": path + filename}
+        params = {
+            "Bucket": self.bucket_name,
+            "Key": self.oss_key_prefix + path + filename,
+        }
         if download:
             params["ResponseContentDisposition"] = "attachment"
         return self.client.generate_presigned_url(

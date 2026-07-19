@@ -80,10 +80,10 @@ CDN_URL_KEY_B = env.get("CDN_URL_KEY_B", "")  # 备 KEY 暂未用到
 # -----------
 # 各类储存前缀
 # -----------
-OSS_FILE_PREFIX = "storage/files/"
-OSS_OUTPUT_PREFIX = "storage/outputs/"
-OSS_USER_AVATAR_PREFIX = "storage/user-avatars/"
-OSS_TEAM_AVATAR_PREFIX = "storage/team-avatars/"
+OSS_FILE_PREFIX = "files/"
+OSS_OUTPUT_PREFIX = "outputs/"
+OSS_USER_AVATAR_PREFIX = "user-avatars/"
+OSS_TEAM_AVATAR_PREFIX = "team-avatars/"
 # -----------
 # 谷歌接口
 # -----------
