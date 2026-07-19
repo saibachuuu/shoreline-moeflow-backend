@@ -23,6 +23,8 @@ class SiteSetting(Document):
     auto_join_team_ids = ListField(ObjectIdField(), db_field="ajt", default=list)
     homepage_html = StringField(db_field="h", default="")
     homepage_css = StringField(db_field="hc", default="")
+    custom_site_title = StringField(db_field="st", default="")
+    homepage_welcome = StringField(db_field="hw", default="")
 
     meta = {
         "indexes": [
@@ -50,4 +52,6 @@ class SiteSetting(Document):
             "auto_join_team_ids": [str(id) for id in self.auto_join_team_ids],
             "homepage_html": self.homepage_html,
             "homepage_css": self.homepage_css,
+            "custom_site_title": self.custom_site_title,
+            "homepage_welcome": self.homepage_welcome,
         }

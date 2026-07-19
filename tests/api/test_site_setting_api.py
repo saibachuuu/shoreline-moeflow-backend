@@ -41,6 +41,8 @@ class TestSiteSettingAPI(MoeAPITestCase):
             "whitelist_emails": ["admin1@moeflow.com", "admin2@moeflow.com"],
             "only_allow_admin_create_team": False,
             "auto_join_team_ids": ["5e7f7b2b4d9b4b0b8c1c1c1c"],
+            "custom_site_title": "My MoeFlow",
+            "homepage_welcome": "Welcome to our translation site.",
         }
         # 普通用户, 无权限
         data = self.put(
@@ -66,4 +68,30 @@ class TestSiteSettingAPI(MoeAPITestCase):
         self.assertEqual(
             [str(id) for id in site_setting.auto_join_team_ids],
             new_setting_json["auto_join_team_ids"],
+        )
+        self.assertEqual(site_setting.custom_site_title, "My MoeFlow")
+        self.assertEqual(
+            site_setting.homepage_welcome,
+            "Welcome to our translation site.",
+        )
+
+    def test_homepage_returns_public_customization_fields(self):
+        site_setting = SiteSetting.get()
+        site_setting.homepage_html = "<main>Custom home</main>"
+        site_setting.homepage_css = ".custom { color: red; }"
+        site_setting.custom_site_title = "My MoeFlow"
+        site_setting.homepage_welcome = "Welcome to our translation site."
+        site_setting.save()
+
+        data = self.get("/v1/site/homepage")
+
+        self.assertErrorEqual(data)
+        self.assertEqual(
+            data.json,
+            {
+                "html": "<main>Custom home</main>",
+                "css": ".custom { color: red; }",
+                "custom_site_title": "My MoeFlow",
+                "homepage_welcome": "Welcome to our translation site.",
+            },
         )

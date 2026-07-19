@@ -54,6 +54,8 @@ class SiteSettingAPI(MoeAPIView):
         site_setting.auto_join_team_ids = data["auto_join_team_ids"]
         site_setting.homepage_html = data.get("homepage_html", "")
         site_setting.homepage_css = data.get("homepage_css", "")
+        site_setting.custom_site_title = data.get("custom_site_title", "")
+        site_setting.homepage_welcome = data.get("homepage_welcome", "")
         site_setting.save()
         site_setting.reload()
         return site_setting.to_api()
@@ -61,7 +63,10 @@ class SiteSettingAPI(MoeAPIView):
 
 class HomepageAPI(MoeAPIView):
     def get(self):
+        site_setting = SiteSetting.get()
         return {
-            "html": SiteSetting.get().homepage_html,
-            "css": SiteSetting.get().homepage_css,
+            "html": site_setting.homepage_html,
+            "css": site_setting.homepage_css,
+            "custom_site_title": site_setting.custom_site_title,
+            "homepage_welcome": site_setting.homepage_welcome,
         }
