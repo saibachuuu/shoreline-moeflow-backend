@@ -25,6 +25,7 @@ from app.validators.project import (
     TeamInsightProjectListSchema,
     TeamInsightUserListSchema,
 )
+from app.apis.project_workers import WORKER_ROLE_EN_TO_CN
 from app.validators.team import CreateTeamSchema, EditTeamSchema
 from flask_apikit.utils import QueryParser
 from app.models.project import ProjectRole, ProjectSet, ProjectUserRelation
@@ -227,7 +228,7 @@ class TeamProjectListAPI(MoeAPIView):
     def get(self, team):
         """
         # noqa: E501
-        @api {get} /v1/teams/<team_id>/projects?project_set=<project_set>&word=<word> 获取团队的所有项目
+        @api {get} /v1/teams/<team_id>/projects?project_set=<project_set>&word=<word>&mode=<mode>&role=<role>&worker_name=<worker_name> 获取团队的所有项目
         @apiVersion 1.0.0
         @apiName get_team_project
         @apiGroup Team
@@ -243,6 +244,9 @@ class TeamProjectListAPI(MoeAPIView):
             - 3  # 计划删除
         @apiParam {String} [project_set] 所在项目集id
         @apiParam {String} [word] 模糊查询的名称
+        @apiParam {String} [mode] 搜索模式: search-worker-in-project-set / search-worker-in-team
+        @apiParam {String} [role] 限定职位(英文key): provider/scan/scan_retoucher/translator/proofreader/picture_editor
+        @apiParam {String} [worker_name] 人员名称
 
         @apiSuccessExample {json} 返回示例
         {
@@ -259,12 +263,53 @@ class TeamProjectListAPI(MoeAPIView):
             context={"team": team},
         )
         p = MoePagination()
+        mode = query.get("mode")
+        role = query.get("role")
+        worker_name = query.get("worker_name")
+        if mode and worker_name and role:
+            projects = team.projects(
+                project_set=query["project_set"],
+                status=query["status"],
+                word=query["word"],
+                mode=mode,
+                role=None,
+                worker_name=worker_name,
+                skip=None,
+                limit=None,
+            )
+            role_cn = WORKER_ROLE_EN_TO_CN.get(role)
+            filtered = []
+            for proj in projects:
+                try:
+                    raw_workers = json.loads(proj.workers or "{}")
+                except Exception:
+                    continue
+                if not isinstance(raw_workers, dict):
+                    continue
+                names = []
+                for key in (role, role_cn):
+                    if key:
+                        names_list = raw_workers.get(key, [])
+                        if isinstance(names_list, list):
+                            names.extend(names_list)
+                if any(worker_name in name for name in names):
+                    filtered.append(proj)
+            total = len(filtered)
+            paged = filtered[p.skip : p.skip + p.limit]
+            data = Project.batch_to_api(
+                paged, self.current_user, inherit_admin_team=team
+            )
+            p.set_data(data, count=total)
+            return p
         projects = team.projects(
             project_set=query["project_set"],
             status=query["status"],
             word=query["word"],
             skip=p.skip,
             limit=p.limit,
+            mode=mode,
+            role=role,
+            worker_name=worker_name,
         )
         data = Project.batch_to_api(
             projects, self.current_user, inherit_admin_team=team

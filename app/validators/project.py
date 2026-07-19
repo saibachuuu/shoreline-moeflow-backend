@@ -33,6 +33,9 @@ class SearchTeamProjectSchema(DefaultSchema):
     )
     word = fields.Str(missing=None)
     project_set = fields.Str(missing=None)
+    mode = fields.Str(missing=None)
+    role = fields.Str(missing=None)
+    worker_name = fields.Str(missing=None)
 
     @post_load
     def to_model(self, in_data):
@@ -41,12 +44,30 @@ class SearchTeamProjectSchema(DefaultSchema):
             project_set = ProjectSet.objects(
                 id=in_data["project_set"], team=self.context["team"]
             ).first()
-            # team下没有此project_set
             if project_set is None:
                 raise ProjectSetNotExistError
             in_data["project_set"] = project_set
             return in_data
         return in_data
+
+    @validates_schema
+    def validate_search_params(self, in_data):
+        mode = in_data.get("mode")
+        worker_name = in_data.get("worker_name")
+        if mode in ("search-worker-in-project-set", "search-worker-in-team") and not worker_name:
+            raise ValidationError("worker_name is required when mode is specified")
+        role = in_data.get("role")
+        if role and role not in (
+            "provider",
+            "scan",
+            "scan_retoucher",
+            "translator",
+            "proofreader",
+            "picture_editor",
+        ):
+            in_data["role"] = None
+        if mode not in ("search-worker-in-project-set", "search-worker-in-team"):
+            in_data["mode"] = None
 
 
 class SearchUserProjectSchema(DefaultSchema):

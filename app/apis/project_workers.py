@@ -13,8 +13,15 @@ from app.models.project import Project, ProjectPermission
 from app.models.target import Target
 
 
-WORKER_ROLES = ("图源", "扫图", "修图", "翻译", "校对", "嵌字")
-WORKER_LINE_PATTERN = re.compile(r"^(图源|扫图|修图|翻译|翻校|校对|嵌字)[:：](.+)$")
+WORKER_ROLES_CN = ("图源", "扫图", "修图", "翻译", "校对", "嵌字")
+WORKER_ROLES_EN = ("provider", "scan", "scan_retoucher", "translator", "proofreader", "picture_editor")
+WORKER_ROLE_CN_TO_EN = dict(zip(WORKER_ROLES_CN, WORKER_ROLES_EN))
+WORKER_ROLE_EN_TO_CN = dict(zip(WORKER_ROLES_EN, WORKER_ROLES_CN))
+
+WORKER_ROLES = WORKER_ROLES_EN
+WORKER_LINE_PATTERN = re.compile(
+    r"^(图源|扫图|修图|翻译|翻校|校对|嵌字|provider|scan|scan_retoucher|translator|proofreader|picture_editor)[:：](.+)$"
+)
 Workers = dict[str, list[str]]
 
 
@@ -23,8 +30,9 @@ def normalize_workers(value: Any) -> Workers:
         return {}
 
     normalized: Workers = {}
-    for role in WORKER_ROLES:
-        names = value.get(role)
+    for role_en in WORKER_ROLES_EN:
+        role_cn = WORKER_ROLE_EN_TO_CN.get(role_en)
+        names = value.get(role_en) or value.get(role_cn)
         if not isinstance(names, list):
             continue
         unique_names = list(
@@ -33,7 +41,7 @@ def normalize_workers(value: Any) -> Workers:
             )
         )
         if unique_names:
-            normalized[role] = unique_names
+            normalized[role_en] = unique_names
     return normalized
 
 
@@ -100,8 +108,15 @@ def extract_workers_from_text(text: str) -> Workers:
             continue
 
         role, name = match.groups()
-        roles = ("翻译", "校对") if role == "翻校" else (role,)
-        for resolved_role in roles:
+        if role == "翻校":
+            resolved_roles = ("translator", "proofreader")
+        elif role in WORKER_ROLE_CN_TO_EN:
+            resolved_roles = (WORKER_ROLE_CN_TO_EN[role],)
+        elif role in WORKER_ROLES_EN:
+            resolved_roles = (role,)
+        else:
+            continue
+        for resolved_role in resolved_roles:
             workers.setdefault(resolved_role, [])
             if name.strip() not in workers[resolved_role]:
                 workers[resolved_role].append(name.strip())

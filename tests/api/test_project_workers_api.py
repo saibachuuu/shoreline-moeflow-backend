@@ -22,7 +22,7 @@ class ProjectWorkerHelpersTestCase(TestCase):
             }
         )
 
-        self.assertEqual(workers, {"翻译": ["Alice", "Bob"]})
+        self.assertEqual(workers, {"translator": ["Alice", "Bob"]})
 
     def test_extract_workers_supports_full_width_colons_and_translator_checker(self):
         workers = extract_workers_from_text(
@@ -32,9 +32,9 @@ class ProjectWorkerHelpersTestCase(TestCase):
         self.assertEqual(
             workers,
             {
-                "翻译": ["Alice", "Bob"],
-                "校对": ["Bob"],
-                "嵌字": ["Carol"],
+                "translator": ["Alice", "Bob"],
+                "proofreader": ["Bob"],
+                "picture_editor": ["Carol"],
             },
         )
 
@@ -82,7 +82,7 @@ class ProjectWorkersAPITestCase(MoeAPITestCase):
             },
         )
         self.assertErrorEqual(response)
-        self.assertEqual(response.json["workers"], {"翻译": ["Alice", "Bob"]})
+        self.assertEqual(response.json["workers"], {"translator": ["Alice", "Bob"]})
 
         response = self.post(
             f"{url}/add",
@@ -92,7 +92,7 @@ class ProjectWorkersAPITestCase(MoeAPITestCase):
         self.assertErrorEqual(response)
         self.assertEqual(
             response.json["workers"],
-            {"翻译": ["Alice", "Bob", "Carol"], "嵌字": ["Dave"]},
+            {"translator": ["Alice", "Bob", "Carol"], "picture_editor": ["Dave"]},
         )
 
         project.reload()
@@ -129,10 +129,10 @@ class ProjectWorkersAPITestCase(MoeAPITestCase):
         self.assertEqual(
             response.json["workers"],
             {
-                "图源": ["Scanner"],
-                "翻译": ["Bob", "Alice"],
-                "校对": ["Bob"],
-                "嵌字": ["Carol"],
+                "provider": ["Scanner"],
+                "translator": ["Bob", "Alice"],
+                "proofreader": ["Bob"],
+                "picture_editor": ["Carol"],
             },
         )
 

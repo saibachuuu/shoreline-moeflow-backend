@@ -1052,8 +1052,25 @@ class Project(GroupMixin, Document):
             ),
         }
         try:
-            workers = json.loads(self.workers) if self.workers else {}
-            data["workers"] = workers if isinstance(workers, dict) else {}
+            raw_workers = json.loads(self.workers) if self.workers else {}
+            if not isinstance(raw_workers, dict):
+                raw_workers = {}
+            role_pairs = [
+                ("provider", "图源"),
+                ("scan", "扫图"),
+                ("scan_retoucher", "修图"),
+                ("translator", "翻译"),
+                ("proofreader", "校对"),
+                ("picture_editor", "嵌字"),
+            ]
+            merged_workers = {}
+            for role_en, role_cn in role_pairs:
+                en_names = raw_workers.get(role_en, [])
+                cn_names = raw_workers.get(role_cn, [])
+                merged_names = en_names if en_names else cn_names
+                if merged_names:
+                    merged_workers[role_en] = merged_names
+            data["workers"] = merged_workers
         except (TypeError, json.JSONDecodeError):
             data["workers"] = {}
         if with_team:

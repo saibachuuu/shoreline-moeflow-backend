@@ -396,6 +396,9 @@ class Team(GroupMixin, Document):
         status=None,
         order_by: list = None,
         word=None,
+        mode=None,
+        role=None,
+        worker_name=None,
     ):
         """
         获取团队项目
@@ -406,6 +409,9 @@ class Team(GroupMixin, Document):
         :param status: 查询何种进度的项目
         :param order_by: 排序
         :param word: 名称模糊查询
+        :param mode: 搜索模式，search-worker-in-project-set 或 search-worker-in-team
+        :param role: 搜索时限定职位（英文key）
+        :param worker_name: 搜索时的人员名称
         :return:
         """
         projects = Project.objects(team=self)
@@ -420,6 +426,9 @@ class Team(GroupMixin, Document):
             projects = projects.filter(status__in=status)
         elif isinstance(status, int):
             projects = projects.filter(status=status)
+        # 搜索worker
+        if mode and worker_name:
+            projects = projects.filter(workers__icontains=worker_name)
         # 排序处理
         projects = mongo_order(projects, order_by, ["-edit_time"])
         # 分页处理
