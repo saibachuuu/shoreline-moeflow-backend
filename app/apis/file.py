@@ -320,7 +320,13 @@ class FileThumbnailAPI(MoeAPIView):
             raise NoPermissionError(gettext("您没有此项目的访问权限"))
         if file.type != FileType.IMAGE:
             raise FileTypeNotSupportError(gettext("仅图片文件可生成缩略图"))
-        if current_app.config["STORAGE_TYPE"] != StorageType.LOCAL_STORAGE:
+        if not (
+            current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE
+            or (
+                current_app.config["STORAGE_TYPE"] == StorageType.OSS
+                and current_app.config.get("OSS_BUCKET_STYLE") == "R2"
+            )
+        ):
             return {"message": gettext("当前存储模式无需重建缩略图"), "count": 0}
 
         from app.tasks.thumbnail import create_thumbnail

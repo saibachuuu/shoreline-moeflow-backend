@@ -618,6 +618,14 @@ class File(Document):
 
         file_prefix = current_app.config["OSS_FILE_PREFIX"]
         if current_app.config["STORAGE_TYPE"] == StorageType.OSS:
+            if (
+                current_app.config.get("OSS_BUCKET_STYLE") == "R2"
+            ):
+                save_name_prefix = self.save_name.rsplit(".", 1)[0]
+                processed_name = f"{process_name}-{save_name_prefix}.webp"
+                if not oss.is_exist(file_prefix, processed_name):
+                    return "generating"
+                return oss.sign_url(file_prefix, processed_name)
             return oss.sign_url(file_prefix, self.save_name, process_name=process_name)
 
         save_name_prefix = self.save_name.rsplit(".", 1)[0]
@@ -664,6 +672,10 @@ class File(Document):
             real_file.seek(0)
             shutil.copyfileobj(real_file, temp_file)
 
+        is_r2 = (
+            current_app.config["STORAGE_TYPE"] == StorageType.OSS
+            and current_app.config.get("OSS_BUCKET_STYLE") == "R2"
+        )
         try:
             if (
                 self.type == FileType.IMAGE
@@ -677,6 +689,10 @@ class File(Document):
                 oss_result = oss.upload(
                     current_app.config["OSS_FILE_PREFIX"], save_name, upload_file
                 )
+
+            if self.type == FileType.IMAGE and is_r2:
+                self.update(save_name=save_name)
+                create_thumbnail(str(self.id), run_sync=True, image_path=temp_file_path)
         finally:
             try:
                 os.remove(temp_file_path)
@@ -716,7 +732,13 @@ class File(Document):
         # 如果是文件夹则跳过
         if self.has_real_file:
             filenames = [self.save_name]
-            if current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE:
+            if (
+                current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE
+                or (
+                    current_app.config["STORAGE_TYPE"] == StorageType.OSS
+                    and current_app.config.get("OSS_BUCKET_STYLE") == "R2"
+                )
+            ):
                 save_name_prefix = self.save_name.rsplit(".", 1)[0]
                 filenames.extend(
                     [
