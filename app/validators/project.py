@@ -34,6 +34,7 @@ class SearchTeamProjectSchema(DefaultSchema):
     word = fields.Str(missing=None)
     project_set = fields.Str(missing=None)
     mode = fields.Str(missing=None)
+    scope = fields.Str(missing=None)
     role = fields.Str(missing=None)
     worker_name = fields.Str(missing=None)
 
@@ -53,9 +54,10 @@ class SearchTeamProjectSchema(DefaultSchema):
     @validates_schema
     def validate_search_params(self, in_data):
         mode = in_data.get("mode")
+        scope = in_data.get("scope")
         worker_name = in_data.get("worker_name")
-        if mode in ("search-worker-in-project-set", "search-worker-in-team") and not worker_name:
-            raise ValidationError("worker_name is required when mode is specified")
+        if mode == 'search-worker' and not worker_name:
+            raise ValidationError("worker_name is required when mode is 'search-worker'")
         role = in_data.get("role")
         if role and role not in (
             "provider",
@@ -66,8 +68,10 @@ class SearchTeamProjectSchema(DefaultSchema):
             "picture_editor",
         ):
             in_data["role"] = None
-        if mode not in ("search-worker-in-project-set", "search-worker-in-team"):
+        if mode not in ("search-project-name", "search-worker"):
             in_data["mode"] = None
+        if scope not in ("project-set", "team"):
+            in_data["scope"] = None
 
 
 class SearchUserProjectSchema(DefaultSchema):

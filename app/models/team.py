@@ -397,6 +397,7 @@ class Team(GroupMixin, Document):
         order_by: list = None,
         word=None,
         mode=None,
+        scope=None,
         role=None,
         worker_name=None,
     ):
@@ -409,14 +410,15 @@ class Team(GroupMixin, Document):
         :param status: 查询何种进度的项目
         :param order_by: 排序
         :param word: 名称模糊查询
-        :param mode: 搜索模式，search-worker-in-project-set 或 search-worker-in-team
+        :param mode: 搜索模式，search-project-name 或 search-worker
+        :param scope: 搜索范围，project-set 或 team
         :param role: 搜索时限定职位（英文key）
         :param worker_name: 搜索时的人员名称
         :return:
         """
         projects = Project.objects(team=self)
         # 限制在某个项目集中
-        if project_set:
+        if project_set and scope != 'team':
             projects = projects.filter(project_set=project_set)
         # 模糊查找名称
         if word:

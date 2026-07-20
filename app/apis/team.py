@@ -228,7 +228,7 @@ class TeamProjectListAPI(MoeAPIView):
     def get(self, team):
         """
         # noqa: E501
-        @api {get} /v1/teams/<team_id>/projects?project_set=<project_set>&word=<word>&mode=<mode>&role=<role>&worker_name=<worker_name> 获取团队的所有项目
+        @api {get} /v1/teams/<team_id>/projects?project_set=<project_set>&word=<word>&mode=<mode>&scope=<scope>&role=<role>&worker_name=<worker_name> 获取团队的所有项目
         @apiVersion 1.0.0
         @apiName get_team_project
         @apiGroup Team
@@ -244,7 +244,8 @@ class TeamProjectListAPI(MoeAPIView):
             - 3  # 计划删除
         @apiParam {String} [project_set] 所在项目集id
         @apiParam {String} [word] 模糊查询的名称
-        @apiParam {String} [mode] 搜索模式: search-worker-in-project-set / search-worker-in-team
+        @apiParam {String} [mode] 搜索模式: search-project-name / search-worker
+        @apiParam {String} [scope] 搜索范围: project-set / team
         @apiParam {String} [role] 限定职位(英文key): provider/scan/scan_retoucher/translator/proofreader/picture_editor
         @apiParam {String} [worker_name] 人员名称
 
@@ -264,6 +265,7 @@ class TeamProjectListAPI(MoeAPIView):
         )
         p = MoePagination()
         mode = query.get("mode")
+        scope = query.get("scope")
         role = query.get("role")
         worker_name = query.get("worker_name")
         if mode and worker_name and role:
@@ -272,6 +274,7 @@ class TeamProjectListAPI(MoeAPIView):
                 status=query["status"],
                 word=query["word"],
                 mode=mode,
+                scope=scope,
                 role=None,
                 worker_name=worker_name,
                 skip=None,
@@ -308,6 +311,7 @@ class TeamProjectListAPI(MoeAPIView):
             skip=p.skip,
             limit=p.limit,
             mode=mode,
+            scope=scope,
             role=role,
             worker_name=worker_name,
         )
