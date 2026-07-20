@@ -56,8 +56,10 @@ class SearchTeamProjectSchema(DefaultSchema):
         mode = in_data.get("mode")
         scope = in_data.get("scope")
         worker_name = in_data.get("worker_name")
-        if mode == 'search-worker' and not worker_name:
-            raise ValidationError("worker_name is required when mode is 'search-worker'")
+        if mode == "search-worker" and not worker_name:
+            raise ValidationError(
+                "worker_name is required when mode is 'search-worker'"
+            )
         role = in_data.get("role")
         if role and role not in (
             "provider",

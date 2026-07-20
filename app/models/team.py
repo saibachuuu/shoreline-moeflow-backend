@@ -418,7 +418,7 @@ class Team(GroupMixin, Document):
         """
         projects = Project.objects(team=self)
         # 限制在某个项目集中
-        if project_set and scope != 'team':
+        if project_set and scope != "team":
             projects = projects.filter(project_set=project_set)
         # 模糊查找名称
         if word:

@@ -1,3 +1,4 @@
+import json
 from unittest import TestCase
 from unittest.mock import call, patch
 
@@ -147,6 +148,35 @@ class ProjectWorkersAPITestCase(MoeAPITestCase):
 
         self.assertErrorEqual(response)
         self.assertEqual(response.json["workers"], {})
+
+    def test_team_worker_search_filters_by_role_and_paginates(self):
+        project, creator, _, outsider = self.create_project_with_users()
+        matching_project = Project.create(
+            "matching", team=project.team, creator=creator
+        )
+        other_project = Project.create("other", team=project.team, creator=creator)
+        project.update(
+            workers=json.dumps({"translator": ["Alice"], "proofreader": ["Bob"]})
+        )
+        matching_project.update(workers=json.dumps({"translator": ["Alice"]}))
+        other_project.update(workers=json.dumps({"proofreader": ["Alice"]}))
+
+        url = (
+            f"/v1/teams/{project.team.id}/projects?"
+            f"project_set={project.project_set.id}&mode=search-worker&scope=team&"
+            "role=translator&worker_name=Alice&page=1&limit=1"
+        )
+        response = self.get(url, token=outsider.generate_token())
+        self.assertErrorEqual(response, NoPermissionError)
+
+        response = self.get(url, token=creator.generate_token())
+        self.assertErrorEqual(response)
+        self.assertEqual(response.headers["X-Pagination-Count"], "2")
+        self.assertEqual(len(response.json), 1)
+        self.assertIn(
+            response.json[0]["id"], {str(project.id), str(matching_project.id)}
+        )
+        self.assertNotEqual(response.json[0]["id"], str(other_project.id))
 
     @patch("app.tasks.thumbnail.create_thumbnail")
     def test_project_thumbnail_regeneration_filters_files_and_checks_permissions(

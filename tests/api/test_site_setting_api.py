@@ -43,6 +43,7 @@ class TestSiteSettingAPI(MoeAPITestCase):
             "auto_join_team_ids": ["5e7f7b2b4d9b4b0b8c1c1c1c"],
             "custom_site_title": "My MoeFlow",
             "homepage_welcome": "Welcome to our translation site.",
+            "homepage_image_url": "https://example.com/welcome.png",
         }
         # 普通用户, 无权限
         data = self.put(
@@ -74,6 +75,10 @@ class TestSiteSettingAPI(MoeAPITestCase):
             site_setting.homepage_welcome,
             "Welcome to our translation site.",
         )
+        self.assertEqual(
+            site_setting.homepage_image_url,
+            "https://example.com/welcome.png",
+        )
 
     def test_homepage_returns_public_customization_fields(self):
         site_setting = SiteSetting.get()
@@ -81,6 +86,7 @@ class TestSiteSettingAPI(MoeAPITestCase):
         site_setting.homepage_css = ".custom { color: red; }"
         site_setting.custom_site_title = "My MoeFlow"
         site_setting.homepage_welcome = "Welcome to our translation site."
+        site_setting.homepage_image_url = "https://example.com/welcome.png"
         site_setting.save()
 
         data = self.get("/v1/site/homepage")
@@ -93,5 +99,6 @@ class TestSiteSettingAPI(MoeAPITestCase):
                 "css": ".custom { color: red; }",
                 "custom_site_title": "My MoeFlow",
                 "homepage_welcome": "Welcome to our translation site.",
+                "homepage_image_url": "https://example.com/welcome.png",
             },
         )

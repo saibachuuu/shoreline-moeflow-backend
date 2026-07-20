@@ -28,3 +28,4 @@ class SiteSettingSchema(DefaultSchema):
     homepage_css = fields.Str()
     custom_site_title = fields.Str()
     homepage_welcome = fields.Str()
+    homepage_image_url = fields.Str()

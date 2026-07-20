@@ -56,6 +56,7 @@ class SiteSettingAPI(MoeAPIView):
         site_setting.homepage_css = data.get("homepage_css", "")
         site_setting.custom_site_title = data.get("custom_site_title", "")
         site_setting.homepage_welcome = data.get("homepage_welcome", "")
+        site_setting.homepage_image_url = data.get("homepage_image_url", "")
         site_setting.save()
         site_setting.reload()
         return site_setting.to_api()
@@ -69,4 +70,5 @@ class HomepageAPI(MoeAPIView):
             "css": site_setting.homepage_css,
             "custom_site_title": site_setting.custom_site_title,
             "homepage_welcome": site_setting.homepage_welcome,
+            "homepage_image_url": site_setting.homepage_image_url,
         }

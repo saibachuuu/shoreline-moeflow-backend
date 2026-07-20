@@ -187,9 +187,7 @@ class OSS:
                         self.client.download_file(self.bucket_name, key, local_path)
                     except ClientError as e:
                         if e.response["Error"]["Code"] == "404":
-                            raise NoSuchKey(
-                                status=404, headers={}, body={}, details={}
-                            )
+                            raise NoSuchKey(status=404, headers={}, body={}, details={})
                         raise
                 else:
                     try:
@@ -199,9 +197,7 @@ class OSS:
                         return BytesIO(response["Body"].read())
                     except ClientError as e:
                         if e.response["Error"]["Code"] == "404":
-                            raise NoSuchKey(
-                                status=404, headers={}, body={}, details={}
-                            )
+                            raise NoSuchKey(status=404, headers={}, body={}, details={})
                         raise
             else:
                 if local_path:
@@ -260,7 +256,10 @@ class OSS:
                     return self.client.delete_objects(
                         Bucket=self.bucket_name,
                         Delete={
-                            "Objects": [{"Key": self.oss_key_prefix + path + name} for name in filename]
+                            "Objects": [
+                                {"Key": self.oss_key_prefix + path + name}
+                                for name in filename
+                            ]
                         },
                     )
                 return self.client.delete_object(

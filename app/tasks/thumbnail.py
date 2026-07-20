@@ -75,9 +75,7 @@ def create_thumbnail_task(image_id: str, image_path=None):
         save_name_prefix = image.save_name.rsplit(".", 1)[0]
         resampling_filter = getattr(Image, "Resampling", Image).LANCZOS
 
-        with tempfile.TemporaryDirectory(
-            prefix=".thumbnail-"
-        ) as temp_dir:
+        with tempfile.TemporaryDirectory(prefix=".thumbnail-") as temp_dir:
             temp_cover_path = os.path.join(temp_dir, f"cover-{save_name_prefix}.webp")
             temp_resample_path = os.path.join(
                 temp_dir, f"resample-{save_name_prefix}.webp"
@@ -99,9 +97,7 @@ def create_thumbnail_task(image_id: str, image_path=None):
                     resample = resample.convert("RGB")
                 resample.save(temp_resample_path, "WEBP", quality=50)
 
-            cover_name = (
-                f"{config['OSS_PROCESS_COVER_NAME']}-{save_name_prefix}.webp"
-            )
+            cover_name = f"{config['OSS_PROCESS_COVER_NAME']}-{save_name_prefix}.webp"
             resample_name = (
                 f"{config['OSS_PROCESS_RESAMPLE_NAME']}-{save_name_prefix}.webp"
             )
@@ -114,9 +110,7 @@ def create_thumbnail_task(image_id: str, image_path=None):
             else:
                 output_dir = os.path.join(STORAGE_PATH, oss_file_prefix)
                 os.makedirs(output_dir, exist_ok=True)
-                os.replace(
-                    temp_cover_path, os.path.join(output_dir, cover_name)
-                )
+                os.replace(temp_cover_path, os.path.join(output_dir, cover_name))
                 os.replace(
                     temp_resample_path,
                     os.path.join(output_dir, resample_name),
@@ -127,9 +121,7 @@ def create_thumbnail_task(image_id: str, image_path=None):
         logger.exception("Failed to create thumbnails for %s", image_id)
         return f"失败：创建缩略图失败 {image_id}"
     finally:
-        if is_r2 and image_path and image_path.startswith(
-            tempfile.gettempdir()
-        ):
+        if is_r2 and image_path and image_path.startswith(tempfile.gettempdir()):
             try:
                 os.unlink(image_path)
             except OSError:

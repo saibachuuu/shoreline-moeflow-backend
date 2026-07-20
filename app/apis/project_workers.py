@@ -14,7 +14,14 @@ from app.models.target import Target
 
 
 WORKER_ROLES_CN = ("图源", "扫图", "修图", "翻译", "校对", "嵌字")
-WORKER_ROLES_EN = ("provider", "scan", "scan_retoucher", "translator", "proofreader", "picture_editor")
+WORKER_ROLES_EN = (
+    "provider",
+    "scan",
+    "scan_retoucher",
+    "translator",
+    "proofreader",
+    "picture_editor",
+)
 WORKER_ROLE_CN_TO_EN = dict(zip(WORKER_ROLES_CN, WORKER_ROLES_EN))
 WORKER_ROLE_EN_TO_CN = dict(zip(WORKER_ROLES_EN, WORKER_ROLES_CN))
 

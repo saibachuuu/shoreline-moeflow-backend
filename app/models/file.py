@@ -618,9 +618,7 @@ class File(Document):
 
         file_prefix = current_app.config["OSS_FILE_PREFIX"]
         if current_app.config["STORAGE_TYPE"] == StorageType.OSS:
-            if (
-                current_app.config.get("OSS_BUCKET_STYLE") == "R2"
-            ):
+            if current_app.config.get("OSS_BUCKET_STYLE") == "R2":
                 save_name_prefix = self.save_name.rsplit(".", 1)[0]
                 processed_name = f"{process_name}-{save_name_prefix}.webp"
                 if not oss.is_exist(file_prefix, processed_name):
@@ -732,12 +730,9 @@ class File(Document):
         # 如果是文件夹则跳过
         if self.has_real_file:
             filenames = [self.save_name]
-            if (
-                current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE
-                or (
-                    current_app.config["STORAGE_TYPE"] == StorageType.OSS
-                    and current_app.config.get("OSS_BUCKET_STYLE") == "R2"
-                )
+            if current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE or (
+                current_app.config["STORAGE_TYPE"] == StorageType.OSS
+                and current_app.config.get("OSS_BUCKET_STYLE") == "R2"
             ):
                 save_name_prefix = self.save_name.rsplit(".", 1)[0]
                 filenames.extend(

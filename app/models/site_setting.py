@@ -25,6 +25,7 @@ class SiteSetting(Document):
     homepage_css = StringField(db_field="hc", default="")
     custom_site_title = StringField(db_field="st", default="")
     homepage_welcome = StringField(db_field="hw", default="")
+    homepage_image_url = StringField(db_field="hi", default="")
 
     meta = {
         "indexes": [
@@ -54,4 +55,5 @@ class SiteSetting(Document):
             "homepage_css": self.homepage_css,
             "custom_site_title": self.custom_site_title,
             "homepage_welcome": self.homepage_welcome,
+            "homepage_image_url": self.homepage_image_url,
         }
