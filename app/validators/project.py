@@ -33,8 +33,8 @@ class SearchTeamProjectSchema(DefaultSchema):
     )
     word = fields.Str(missing=None)
     project_set = fields.Str(missing=None)
+    project_sets = fields.List(fields.Str(), missing=None)
     mode = fields.Str(missing=None)
-    scope = fields.Str(missing=None)
     role = fields.Str(missing=None)
     worker_name = fields.Str(missing=None)
 
@@ -48,13 +48,20 @@ class SearchTeamProjectSchema(DefaultSchema):
             if project_set is None:
                 raise ProjectSetNotExistError
             in_data["project_set"] = project_set
-            return in_data
+        if in_data["project_sets"]:
+            project_sets = list(
+                ProjectSet.objects(
+                    id__in=in_data["project_sets"], team=self.context["team"]
+                )
+            )
+            if len(project_sets) != len(set(in_data["project_sets"])):
+                raise ProjectSetNotExistError
+            in_data["project_sets"] = project_sets
         return in_data
 
     @validates_schema
     def validate_search_params(self, in_data):
         mode = in_data.get("mode")
-        scope = in_data.get("scope")
         worker_name = in_data.get("worker_name")
         if mode == "search-worker" and not worker_name:
             raise ValidationError(
@@ -72,8 +79,6 @@ class SearchTeamProjectSchema(DefaultSchema):
             in_data["role"] = None
         if mode not in ("search-project-name", "search-worker"):
             in_data["mode"] = None
-        if scope not in ("project-set", "team"):
-            in_data["scope"] = None
 
 
 class SearchUserProjectSchema(DefaultSchema):

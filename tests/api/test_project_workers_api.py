@@ -163,7 +163,7 @@ class ProjectWorkersAPITestCase(MoeAPITestCase):
 
         url = (
             f"/v1/teams/{project.team.id}/projects?"
-            f"project_set={project.project_set.id}&mode=search-worker&scope=team&"
+            f"project_sets={project.project_set.id}&mode=search-worker&"
             "role=translator&worker_name=Alice&page=1&limit=1"
         )
         response = self.get(url, token=outsider.generate_token())

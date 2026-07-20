@@ -228,7 +228,7 @@ class TeamProjectListAPI(MoeAPIView):
     def get(self, team):
         """
         # noqa: E501
-        @api {get} /v1/teams/<team_id>/projects?project_set=<project_set>&word=<word>&mode=<mode>&scope=<scope>&role=<role>&worker_name=<worker_name> 获取团队的所有项目
+        @api {get} /v1/teams/<team_id>/projects?project_sets=<project_sets>&word=<word>&mode=<mode>&role=<role>&worker_name=<worker_name> 获取团队的所有项目
         @apiVersion 1.0.0
         @apiName get_team_project
         @apiGroup Team
@@ -243,9 +243,9 @@ class TeamProjectListAPI(MoeAPIView):
             - 2  # 计划完成
             - 3  # 计划删除
         @apiParam {String} [project_set] 所在项目集id
+        @apiParam {String[]} [project_sets] 搜索的项目集id，可传递多个
         @apiParam {String} [word] 模糊查询的名称
         @apiParam {String} [mode] 搜索模式: search-project-name / search-worker
-        @apiParam {String} [scope] 搜索范围: project-set / team
         @apiParam {String} [role] 限定职位(英文key): provider/scan/scan_retoucher/translator/proofreader/picture_editor
         @apiParam {String} [worker_name] 人员名称
 
@@ -259,22 +259,24 @@ class TeamProjectListAPI(MoeAPIView):
             raise NoPermissionError
         # 获取查询参数
         query = self.get_query(
-            {"status": [QueryParser.int]},
+            {
+                "status": [QueryParser.int],
+                "project_sets": [str],
+            },
             SearchTeamProjectSchema(),
             context={"team": team},
         )
         p = MoePagination()
         mode = query.get("mode")
-        scope = query.get("scope")
         role = query.get("role")
         worker_name = query.get("worker_name")
         if mode and worker_name and role:
             projects = team.projects(
                 project_set=query["project_set"],
+                project_sets=query["project_sets"],
                 status=query["status"],
                 word=query["word"],
                 mode=mode,
-                scope=scope,
                 role=None,
                 worker_name=worker_name,
                 skip=None,
@@ -306,12 +308,12 @@ class TeamProjectListAPI(MoeAPIView):
             return p
         projects = team.projects(
             project_set=query["project_set"],
+            project_sets=query["project_sets"],
             status=query["status"],
             word=query["word"],
             skip=p.skip,
             limit=p.limit,
             mode=mode,
-            scope=scope,
             role=role,
             worker_name=worker_name,
         )

@@ -876,6 +876,16 @@ class TeamProjectAPITestCase(MoeAPITestCase):
             )
             self.assertErrorEqual(data)
             self.assertEqual("2", data.headers.get("X-Pagination-Count"))
+            # == 根据多个项目集筛选 ==
+            data = self.get(
+                f"/v1/teams/{str(team1.id)}/projects",
+                query_string={
+                    "project_sets": [str(set1.id), str(set2.id)],
+                },
+                token=token1,
+            )
+            self.assertErrorEqual(data)
+            self.assertEqual("3", data.headers.get("X-Pagination-Count"))
             # == 通过status筛选 ==
             # 初始状态，只有3个进行中的项目
             data = self.get(
