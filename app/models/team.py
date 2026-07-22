@@ -1,4 +1,5 @@
 import datetime
+import json
 import re
 from typing import List
 
@@ -9,6 +10,7 @@ from mongoengine import (
     DENY,
     Document,
     IntField,
+    Q,
     ReferenceField,
     StringField,
     DateTimeField,
@@ -432,7 +434,10 @@ class Team(GroupMixin, Document):
             projects = projects.filter(status=status)
         # 搜索worker
         if mode and worker_name:
-            projects = projects.filter(workers__icontains=worker_name)
+            escaped_name = json.dumps(worker_name, ensure_ascii=True)[1:-1]
+            projects = projects.filter(
+                Q(workers__icontains=worker_name) | Q(workers__icontains=escaped_name)
+            )
         # 排序处理
         projects = mongo_order(projects, order_by, ["-edit_time"])
         # 分页处理

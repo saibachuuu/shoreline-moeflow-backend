@@ -61,7 +61,7 @@ def load_workers(project: Project) -> Workers:
 
 def save_workers(project: Project, workers: Workers) -> Workers:
     normalized = normalize_workers(workers)
-    project.update(workers=json.dumps(normalized, ensure_ascii=False))
+    project.update(workers=json.dumps(normalized))
     return normalized
 
 
