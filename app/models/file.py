@@ -621,8 +621,6 @@ class File(Document):
             if current_app.config.get("OSS_BUCKET_STYLE") == "R2":
                 save_name_prefix = self.save_name.rsplit(".", 1)[0]
                 processed_name = f"{process_name}-{save_name_prefix}.webp"
-                if not oss.is_exist(file_prefix, processed_name):
-                    return "generating"
                 return oss.sign_url(file_prefix, processed_name)
             return oss.sign_url(file_prefix, self.save_name, process_name=process_name)
 

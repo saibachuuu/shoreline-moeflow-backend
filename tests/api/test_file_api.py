@@ -1,7 +1,9 @@
 import os
+from unittest.mock import patch
 
 from app import oss
 from app.constants.file import FileType
+from app.constants.storage import StorageType
 from app.exceptions import (
     FilenameIllegalError,
     FolderNotExistError,
@@ -20,6 +22,36 @@ from tests import TEST_FILE_PATH, MoeAPITestCase
 
 
 class FileAPITestCase(MoeAPITestCase):
+    def test_get_r2_project_files_does_not_request_objects(self):
+        with self.app.test_request_context():
+            user = self.create_user("11", "1@1.com", "111111")
+            token = user.generate_token()
+            team = Team.create("t1", creator=user)
+            project = Project.create("p1", team=team, creator=user)
+            image = project.create_file("page.png")
+            image.update(save_name="image-id.png")
+
+            self.app.config["STORAGE_TYPE"] = StorageType.OSS
+            self.app.config["OSS_BUCKET_STYLE"] = "R2"
+            with patch.object(oss, "is_exist") as is_exist, patch.object(
+                oss,
+                "sign_url",
+                side_effect=lambda path, filename, **kwargs: f"https://r2.test/{path}{filename}",
+            ):
+                data = self.get(f"/v1/projects/{project.id}/files", token=token)
+
+            self.assertErrorEqual(data)
+            self.assertEqual(data.json[0]["url"], "https://r2.test/files/image-id.png")
+            self.assertEqual(
+                data.json[0]["cover_url"],
+                "https://r2.test/files/cover-image-id.webp",
+            )
+            self.assertEqual(
+                data.json[0]["resample_url"],
+                "https://r2.test/files/resample-image-id.webp",
+            )
+            is_exist.assert_not_called()
+
     def test_get_project_file(self):
         """测试获取项目下文件"""
         with self.app.test_request_context():
