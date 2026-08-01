@@ -761,8 +761,8 @@ class Project(GroupMixin, Document):
         :return:
         """
         files = File.objects(project=self, activated=True)
-        if word is not None:
-            files = files.filter(name__icontains=word)
+        if word and word.strip():
+            files = files.filter(name__icontains=word.strip())
         # 父文件夹
         if parent != "all":
             # 确认父级文件夹是否存在于本项目

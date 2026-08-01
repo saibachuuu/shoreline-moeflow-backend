@@ -474,9 +474,16 @@ class AuthAPITestCase(MoeAPITestCase):
         self.assertErrorEqual(data)
         self.assertEqual(data.json["name"], "11")
         self.assertEqual(data.json["signature"], "222")
+        # 名称经过 i18n。这里不写死中文：Locale.details 中的 lazy_gettext 在进程内
+        # 第一次求值后就固定下来，实际语言取决于本次运行中最早那个请求的
+        # Accept-Language，写死任一语言都会让断言依赖测试执行顺序。
         self.assertEqual(
             data.json["locale"],
-            {"id": "auto", "name": "自动", "intro": "遵循浏览器设置"},
+            {
+                "id": "auto",
+                "name": str(Locale.details["AUTO"]["name"]),
+                "intro": str(Locale.details["AUTO"]["intro"]),
+            },
         )
         # 设置资料
         data = self.put(
@@ -491,7 +498,12 @@ class AuthAPITestCase(MoeAPITestCase):
         self.assertEqual(data.json["name"], "111")
         self.assertEqual(data.json["signature"], "111")
         self.assertEqual(
-            data.json["locale"], {"id": "zh_CN", "name": "中文（简体）", "intro": ""}
+            data.json["locale"],
+            {
+                "id": "zh_CN",
+                "name": str(Locale.details["ZH_CN"]["name"]),
+                "intro": "",
+            },
         )
         # 再次设置资料，将一些值设为空
         data = self.put(
@@ -506,7 +518,12 @@ class AuthAPITestCase(MoeAPITestCase):
         self.assertEqual(data.json["name"], "111")
         self.assertEqual(data.json["signature"], "")
         self.assertEqual(
-            data.json["locale"], {"id": "zh_CN", "name": "中文（简体）", "intro": ""}
+            data.json["locale"],
+            {
+                "id": "zh_CN",
+                "name": str(Locale.details["ZH_CN"]["name"]),
+                "intro": "",
+            },
         )
         # 设置成已经存在的名称，出错
         data = self.put(

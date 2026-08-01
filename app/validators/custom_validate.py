@@ -44,10 +44,20 @@ def indexes_in(model=None, other_indexes: list = None):
     indexes = []
     if model and hasattr(model, "_meta") and "indexes" in model._meta:
         # 将索引转换成列表，用于比较
-        indexes = [
-            [index] if isinstance(index, str) else list(index)
-            for index in model._meta["indexes"]
-        ]
+        # mongoengine 允许索引写成字符串、元组，或带 name/background 等选项的
+        # 字典（{"fields": (...), "name": ...}）。字典形式必须取 fields，
+        # 否则 list() 会得到 ["fields", "name"] 这种键名列表。
+        indexes = []
+        for index in model._meta["indexes"]:
+            if isinstance(index, dict):
+                fields = index.get("fields")
+                if not fields:
+                    continue
+                indexes.append(list(fields))
+            elif isinstance(index, str):
+                indexes.append([index])
+            else:
+                indexes.append(list(index))
         # 将所有索引取反
         for index in indexes.copy():
             indexes.append([i[1:] if i.startswith("-") else "-" + i for i in index])

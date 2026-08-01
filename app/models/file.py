@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 import mongoengine
 import logging
 from bson import ObjectId
@@ -66,6 +67,7 @@ from app.constants.file import (
     ImageParseStatus,
     ParseErrorType,
     ParseStatus,
+    ThumbnailStatus,
 )
 from app.tasks.thumbnail import create_thumbnail
 from app.utils import default
@@ -189,6 +191,11 @@ class File(Document):
     file_not_exist_reason = IntField(
         db_field="fn", default=FileNotExistReason.UNKNOWN
     )  # 源文件不存在的原因
+    thumbnail_status = IntField(
+        db_field="th", default=ThumbnailStatus.UNKNOWN
+    )  # 缩略图状态
+    thumbnail_error = StringField(db_field="the", default="")  # 最近一次失败原因
+    thumbnail_update_time = DateTimeField(db_field="tht")
 
     # 缓存，需要使用inc_cache/update_cache更新
     folder_count = IntField(db_field="fo", default=0)  # 文件夹数量
@@ -248,6 +255,18 @@ class File(Document):
             ("type", "-sort_name"),
             ("dir_sort_name", "type", "sort_name"),
             ("dir_sort_name", "type", "-sort_name"),
+            {"fields": ("-edit_time",), "name": "file_admin_edit_time_v1"},
+            {
+                "fields": (
+                    "project",
+                    "activated",
+                    "parent",
+                    "dir_sort_name",
+                    "type",
+                    "sort_name",
+                ),
+                "name": "file_list_v2",
+            },
         ]
     }
 
@@ -621,14 +640,31 @@ class File(Document):
             if current_app.config.get("OSS_BUCKET_STYLE") == "R2":
                 save_name_prefix = self.save_name.rsplit(".", 1)[0]
                 processed_name = f"{process_name}-{save_name_prefix}.webp"
-                return oss.sign_url(file_prefix, processed_name)
+                if self.thumbnail_status == ThumbnailStatus.SUCCEEDED:
+                    return oss.sign_url(file_prefix, processed_name)
+                # R2 has no cheap per-list existence probe, so an unfinished or
+                # failed generation is all we can report here.  Legacy records
+                # predate the status field and kept working by always signing.
+                if self.thumbnail_status == ThumbnailStatus.UNKNOWN:
+                    return oss.sign_url(file_prefix, processed_name)
+                return "generating"
             return oss.sign_url(file_prefix, self.save_name, process_name=process_name)
 
         save_name_prefix = self.save_name.rsplit(".", 1)[0]
         processed_name = f"{process_name}-{save_name_prefix}.webp"
-        if not oss.is_exist(file_prefix, processed_name):
-            return "generating"
-        return oss.sign_url(file_prefix, processed_name)
+        # SUCCEEDED is the hot path and is trusted without touching storage:
+        # skipping this probe for every row is the point of the status field.
+        if self.thumbnail_status == ThumbnailStatus.SUCCEEDED:
+            return oss.sign_url(file_prefix, processed_name)
+        # For every other state fall back to asking storage.  Status alone must
+        # not decide, because a worker killed mid-task (OOM, redeploy) leaves
+        # the document at GENERATING forever with no redelivery -- Celery acks
+        # early and nothing retries.  Trusting status there would hide a
+        # perfectly good thumbnail permanently.  It also keeps a rebuild from
+        # blanking covers that are still on disk while the queue drains.
+        if oss.is_exist(file_prefix, processed_name):
+            return oss.sign_url(file_prefix, processed_name)
+        return "generating"
 
     @only_file
     def has_real_file(self):
@@ -649,8 +685,11 @@ class File(Document):
         """
         上传源文件
         """
-        # 尝试删除源文件
-        self.delete_real_file()
+        started_at = time.monotonic()
+        # Keep the previous object until the replacement has been persisted.
+        # Deleting first turns a transient upload failure into data loss.
+        old_save_name = self.save_name
+        old_file_size = self.file_size
         # 生成用于保存的名称
         filename = Filename(self.name)
         save_name = str(ObjectId()) + "." + filename.suffix
@@ -667,39 +706,92 @@ class File(Document):
             temp_file_path = temp_file.name
             real_file.seek(0)
             shutil.copyfileobj(real_file, temp_file)
+        staged_at = time.monotonic()
 
-        is_r2 = (
-            current_app.config["STORAGE_TYPE"] == StorageType.OSS
-            and current_app.config.get("OSS_BUCKET_STYLE") == "R2"
-        )
         try:
-            if (
-                self.type == FileType.IMAGE
-                and current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE
-            ):
-                # The thumbnail task reads the model's save_name.
-                self.update(save_name=save_name)
-                create_thumbnail(str(self.id), run_sync=True, image_path=temp_file_path)
-
             with open(temp_file_path, "rb") as upload_file:
                 oss_result = oss.upload(
                     current_app.config["OSS_FILE_PREFIX"], save_name, upload_file
                 )
+            uploaded_at = time.monotonic()
 
-            if self.type == FileType.IMAGE and is_r2:
-                self.update(save_name=save_name)
-                create_thumbnail(str(self.id), run_sync=True, image_path=temp_file_path)
+            # Persist the new object before scheduling any work that reads it.
+            # ``create_file`` marks a new file NOT_UPLOAD; clear that here or the
+            # file keeps rendering as "pending upload" even though the bytes and
+            # its thumbnails are in place.
+            self.update(
+                save_name=save_name,
+                md5=md5,
+                file_not_exist_reason=FileNotExistReason.UNKNOWN,
+            )
+            # ``Document.update`` deliberately does not refresh this instance.
+            # The upload API serializes the same object immediately afterwards,
+            # so keep its in-memory representation consistent with MongoDB.
+            self.save_name = save_name
+            self.md5 = md5
+            self.file_not_exist_reason = FileNotExistReason.UNKNOWN
+
+            if self.type == FileType.IMAGE and (
+                current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE
+                or current_app.config.get("OSS_BUCKET_STYLE") == "R2"
+            ):
+                # Thumbnail generation is CPU-heavy.  Do not make the upload
+                # request wait for Pillow; the task reads the stored original.
+                try:
+                    create_thumbnail(str(self.id))
+                    self.thumbnail_status = ThumbnailStatus.QUEUING
+                    self.thumbnail_error = ""
+                except Exception:
+                    # The broker is unreachable, so nothing will ever pick this
+                    # up. Generate inline rather than leave the image FAILED
+                    # with no retry: a slow upload beats a thumbnail that never
+                    # appears. Failing that, the URL properties still fall back
+                    # to a storage probe, so the image is not lost.
+                    logger.exception(
+                        "Failed to queue thumbnails for %s; generating inline",
+                        self.id,
+                    )
+                    try:
+                        create_thumbnail(str(self.id), run_sync=True)
+                    except Exception:
+                        logger.exception(
+                            "Inline thumbnail generation also failed for %s", self.id
+                        )
+
+            if old_save_name:
+                filenames = [old_save_name]
+                if current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE or (
+                    current_app.config["STORAGE_TYPE"] == StorageType.OSS
+                    and current_app.config.get("OSS_BUCKET_STYLE") == "R2"
+                ):
+                    old_name_prefix = old_save_name.rsplit(".", 1)[0]
+                    filenames.extend(
+                        [
+                            current_app.config["OSS_PROCESS_COVER_NAME"]
+                            + "-"
+                            + old_name_prefix
+                            + ".webp",
+                            current_app.config["OSS_PROCESS_RESAMPLE_NAME"]
+                            + "-"
+                            + old_name_prefix
+                            + ".webp",
+                        ]
+                    )
+                try:
+                    oss.delete(current_app.config["OSS_FILE_PREFIX"], filenames)
+                except Exception:
+                    # The replacement is already visible.  Retaining an old
+                    # object is preferable to failing or reverting the upload.
+                    logger.exception("Failed to remove replaced file %s", old_save_name)
         finally:
             try:
                 os.remove(temp_file_path)
             except OSError:
                 logger.warning("Failed to remove upload temp file %s", temp_file_path)
 
-        # Persist the new object name for every storage mode and file type.
-        self.update(save_name=save_name, md5=md5)
         # 更新文件大小，非激活修订版只更新自身文件大小
         if self.activated:
-            self.inc_cache("file_size", file_size - self.file_size)
+            self.inc_cache("file_size", file_size - old_file_size)
         else:
             self.update(file_size=file_size)
         # 更新修改时间
@@ -708,6 +800,14 @@ class File(Document):
         if self.type == FileType.TEXT:
             self.parse()
         self.reload()
+        logger.info(
+            "upload_performance file_id=%s bytes=%s stage_ms=%s upload_ms=%s total_ms=%s",
+            self.id,
+            file_size,
+            round((staged_at - started_at) * 1000),
+            round((uploaded_at - staged_at) * 1000),
+            round((time.monotonic() - started_at) * 1000),
+        )
         return oss_result
 
     @only_file
@@ -1154,6 +1254,8 @@ class File(Document):
             data["url"] = self.url
             data["cover_url"] = self.cover_url
             data["resample_url"] = self.resample_url
+            data["thumbnail_status"] = self.thumbnail_status
+            data["thumbnail_error"] = self.thumbnail_error
             data["image_ocr_percent"] = self.image_ocr_percent
             data["image_ocr_percent_detail_name"] = ImageOCRPercent.get_detail_by_value(
                 self.image_ocr_percent, "name"

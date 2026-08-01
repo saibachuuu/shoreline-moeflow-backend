@@ -37,6 +37,16 @@ class FileNotExistReason:
     BLOCK = 4  # 因为屏蔽被删除
 
 
+class ThumbnailStatus(IntType):
+    """Lifecycle state for generated cover and resample images."""
+
+    UNKNOWN = 0  # Legacy records whose generated files have not been audited.
+    QUEUING = 1
+    GENERATING = 2
+    SUCCEEDED = 3
+    FAILED = 4
+
+
 class FileSafeStatus:
     """安全检查状态 - 已废弃，保留以兼容旧数据库"""
 

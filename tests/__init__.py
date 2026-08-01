@@ -6,7 +6,7 @@ from unittest import TestCase
 import os
 from mongoengine import connection
 
-from app import create_app, FILE_PATH
+from app import create_app, FILE_PATH, oss
 from app.factory import init_db
 from app.models.site_setting import SiteSetting
 from app.models.user import User
@@ -31,13 +31,34 @@ def create_test_app():
     # reset the db
     connection.get_db().client.drop_database(connection.get_db().name)
     init_db(app)
+    # ``dotenv.load_dotenv`` does not override env vars that are already set,
+    # so the container's real environment (e.g. STORAGE_DOMAIN) shadows
+    # .env.test.  Force the values that the test suite depends on so the suite
+    # is self-contained regardless of where it runs.
+    app.config.update(
+        {
+            "STORAGE_DOMAIN": "http://127.0.0.1:5000/storage/",
+            "STORAGE_TYPE": "LOCAL_STORAGE",
+        }
+    )
+    # The oss singleton was initialised with the pre-override config during
+    # create_app → init_flask_app.  Re-initialise so it picks up the test
+    # values above.
+    oss.init(app.config)
     return app
 
 
 class MoeTestCase(TestCase):
     maxDiff = None
+
     def setUp(self):
         self.app = create_test_app()
+        # ``create_app`` hands back a process-wide singleton, so every test
+        # shares one config dict. A test that flips STORAGE_TYPE to OSS leaks
+        # that into every later test in the same run, which then uploads
+        # through an OSS client that was never initialised. Snapshot here and
+        # restore in tearDown so tests stay order-independent.
+        self._config_snapshot = dict(self.app.config)
         self.app_context = self.app.app_context()
         self.app_context.push()
         self.client = self.app.test_client(use_cookies=True)
@@ -46,6 +67,13 @@ class MoeTestCase(TestCase):
 
     def tearDown(self):
         self.app_context.pop()
+        if self.app.config != self._config_snapshot:
+            self.app.config.clear()
+            self.app.config.update(self._config_snapshot)
+            # The oss singleton caches storage_type, bucket and key prefix from
+            # whatever config it last saw, so restoring the mapping alone is
+            # not enough.
+            oss.init(self.app.config)
 
     def create_user(self, name: str, email=None, password="123456") -> User:
         """创建测试用户"""

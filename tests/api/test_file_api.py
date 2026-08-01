@@ -14,6 +14,7 @@ from app.exceptions import (
 )
 from app.exceptions.project import ProjectFinishedError
 from app.models.language import Language
+from app.models.file import FileTargetCache
 from app.models.project import Project
 from app.models.team import Team
 from app.models.user import User
@@ -33,10 +34,15 @@ class FileAPITestCase(MoeAPITestCase):
 
             self.app.config["STORAGE_TYPE"] = StorageType.OSS
             self.app.config["OSS_BUCKET_STYLE"] = "R2"
-            with patch.object(oss, "is_exist") as is_exist, patch.object(
-                oss,
-                "sign_url",
-                side_effect=lambda path, filename, **kwargs: f"https://r2.test/{path}{filename}",
+            with (
+                patch.object(oss, "is_exist") as is_exist,
+                patch.object(
+                    oss,
+                    "sign_url",
+                    side_effect=lambda path, filename, **kwargs: (
+                        f"https://r2.test/{path}{filename}"
+                    ),
+                ),
             ):
                 data = self.get(f"/v1/projects/{project.id}/files", token=token)
 
@@ -472,6 +478,40 @@ class FileAPITestCase(MoeAPITestCase):
             user.join(project)
             data = self.get("/v1/projects/{}/files".format(project.id), token=token)
             self.assertErrorEqual(data)
+
+    def test_get_files_without_target_cache_reports_zero_counts(self):
+        """缺失 FileTargetCache 时应返回零计数而非 500。
+
+        缓存行与文件、翻译目标分开写入且没有事务保护，中断的创建会留下没有
+        缓存行的文件。这类文件曾让整个文件列表接口 500，导致项目打不开。
+        """
+        project = self.create_project("p", target_languages=Language.by_code("en"))
+        token = self.get_creator(project).generate_token()
+        image = project.create_file("page.png")
+        target = project.targets().first()
+        FileTargetCache.objects(file=image, target=target).delete()
+
+        data = self.get(
+            f"/v1/projects/{str(project.id)}/files",
+            query_string={"target": str(target.id)},
+            token=token,
+        )
+        self.assertErrorEqual(data)
+        self.assertEqual(
+            data.json[0]["file_target_cache"],
+            {"id": None, "translated_source_count": 0, "checked_source_count": 0},
+        )
+
+        data = self.get(
+            f"/v1/files/{str(image.id)}",
+            query_string={"target": str(target.id)},
+            token=token,
+        )
+        self.assertErrorEqual(data)
+        self.assertEqual(
+            data.json["file_target_cache"],
+            {"id": None, "translated_source_count": 0, "checked_source_count": 0},
+        )
 
     def test_upload_file_to_finished_project(self):
         """测试向已完结的项目上传文件"""

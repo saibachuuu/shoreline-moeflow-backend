@@ -150,6 +150,15 @@ class OSS:
             if self.oss_bucket_style == "R2":
                 key = self.oss_key_prefix + path + filename
                 extra_kwargs = _boto3_put_kwargs_from_headers(headers)
+                if hasattr(file, "read"):
+                    # upload_fileobj performs multipart streaming for large
+                    # files.  Do not turn an upload into a full in-memory Body.
+                    upload_kwargs = {}
+                    if extra_kwargs:
+                        upload_kwargs["ExtraArgs"] = extra_kwargs
+                    return self.client.upload_fileobj(
+                        file, self.bucket_name, key, **upload_kwargs
+                    )
                 return self.client.put_object(
                     Bucket=self.bucket_name,
                     Key=key,
@@ -224,8 +233,11 @@ class OSS:
                 try:
                     self.client.head_object(Bucket=self.bucket_name, Key=key)
                     return True
-                except ClientError:
-                    return False
+                except ClientError as error:
+                    code = str(error.response.get("Error", {}).get("Code", ""))
+                    if code in {"404", "NoSuchKey", "NotFound"}:
+                        return False
+                    raise
             return self.bucket.object_exists(path + filename)
         else:
             if os.path.isabs(path):

@@ -94,8 +94,20 @@ class ProjectFileListAPI(MoeAPIView):
             file_target_caches_map = {
                 str(cache.file.id): cache.to_api() for cache in file_target_caches
             }
+            # A cache row is created alongside the file and the target, but those
+            # writes are not transactional, so a file can outlive a failed or
+            # interrupted creation. A missing row means nothing has been
+            # translated yet, so report zero counts instead of failing the whole
+            # listing.
             for item in data:
-                item["file_target_cache"] = file_target_caches_map[item["id"]]
+                item["file_target_cache"] = file_target_caches_map.get(
+                    item["id"],
+                    {
+                        "id": None,
+                        "translated_source_count": 0,
+                        "checked_source_count": 0,
+                    },
+                )
         return p.set_data(data=data, count=files.count())
 
     @token_required
@@ -168,7 +180,18 @@ class FileAPI(MoeAPIView):
             file_target_cache = FileTargetCache.objects(
                 file=file, target=target
             ).first()
-            data["file_target_cache"] = file_target_cache.to_api()
+            # Same non-transactional gap as the listing endpoint above: the
+            # cache row can be missing for a file that outlived a failed
+            # creation. Report zero counts rather than raising AttributeError.
+            data["file_target_cache"] = (
+                file_target_cache.to_api()
+                if file_target_cache
+                else {
+                    "id": None,
+                    "translated_source_count": 0,
+                    "checked_source_count": 0,
+                }
+            )
         # 插入前后图片的信息
         if file.type == FileType.IMAGE:
             prev_image = (

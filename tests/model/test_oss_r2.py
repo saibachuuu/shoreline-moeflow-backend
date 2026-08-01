@@ -51,6 +51,28 @@ class R2OSSAdapterTestCase(TestCase):
         )
 
     @patch("app.services.oss.boto3.client")
+    def test_r2_file_object_uses_streaming_upload(self, client_factory):
+        client = Mock()
+        client_factory.return_value = client
+        oss = OSS(self.make_config())
+        body = BytesIO(b"image-body")
+
+        oss.upload(
+            "files/",
+            "page.png",
+            body,
+            headers={"Content-Type": "image/png"},
+        )
+
+        client.upload_fileobj.assert_called_once_with(
+            body,
+            "moeflow",
+            "storage/files/page.png",
+            ExtraArgs={"ContentType": "image/png"},
+        )
+        client.put_object.assert_not_called()
+
+    @patch("app.services.oss.boto3.client")
     def test_r2_download_delete_and_presigned_url(self, client_factory):
         client = Mock()
         client_factory.return_value = client
@@ -107,3 +129,15 @@ class R2OSSAdapterTestCase(TestCase):
             cdn_oss.sign_url("files/", "page 1.png"),
             "https://cdn.example.test/files/page%201.png",
         )
+
+    @patch("app.services.oss.boto3.client")
+    def test_r2_head_permission_error_is_not_treated_as_missing(self, client_factory):
+        client = Mock()
+        client_factory.return_value = client
+        client.head_object.side_effect = ClientError(
+            {"Error": {"Code": "403", "Message": "Forbidden"}}, "HeadObject"
+        )
+        oss = OSS(self.make_config())
+
+        with self.assertRaises(ClientError):
+            oss.is_exist("files/", "restricted.png")

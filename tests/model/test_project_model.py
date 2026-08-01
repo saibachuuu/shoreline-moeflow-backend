@@ -3,6 +3,7 @@ from app.models.output import Output
 import os
 
 from flask import current_app
+from flask_babel import force_locale
 
 from app import oss
 from app.core.rbac import AllowApplyType, ApplicationCheckType
@@ -419,6 +420,10 @@ class ProjectModelTestCase(MoeTestCase):
                 # 测试无条件搜索
                 self.assertEqual(4, project.files().count())
 
+                # Empty and whitespace-only search terms mean "do not filter".
+                self.assertEqual(4, project.files(word="").count())
+                self.assertEqual(4, project.files(word="   ").count())
+
                 # 测试只搜索文件
                 files = project.files(type_exclude=FileType.FOLDER)
                 self.assertEqual(2, files.count())
@@ -608,7 +613,10 @@ class ProjectModelTestCase(MoeTestCase):
                 + "----------------[2]----------------[0.0,0.0,1]\r\n"
                 + "f2t2\r\n"
             )
-            result = project.to_labelplus(target=default_target)
+            # 表头经过 i18n，测试请求上下文没有 Accept-Language 时会回落到 en，
+            # 故固定为 zh 再比对下面的中文表头。
+            with force_locale("zh"):
+                result = project.to_labelplus(target=default_target)
             self.assertEqual(need_result, result)
 
     def test_apply_auto_become_project_team1(self):
