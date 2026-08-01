@@ -70,6 +70,9 @@ OSS_BUCKET_NAME = env.get("OSS_BUCKET_NAME", "")
 OSS_BUCKET_STYLE = env.get("OSS_BUCKET_STYLE", "S3")
 OSS_PROCESS_COVER_NAME = env.get("OSS_PROCESS_COVER_NAME", "cover")
 OSS_PROCESS_RESAMPLE_NAME = env.get("OSS_PROCESS_RESAMPLE_NAME", "resample")
+# Keep the upload request asynchronous by default.  Set this only for a
+# single-process installation that intentionally has no Celery worker.
+THUMBNAIL_SYNC_FALLBACK = env.get("THUMBNAIL_SYNC_FALLBACK", "") == "True"
 # 如果 OSS 绑定了 CDN 来加速，同时开启了 CDN 的 [阿里云 OSS 私有 Bucket 回源] 和 [URL 鉴权]，
 # 此时需要设置 STORAGE_DOMAIN 为 CDN 域名，且设置 OSS_VIA_CDN = True，
 # 这样程序将通过 CDN 的 URL 鉴权方式来生成 CDN URL，而不用 OSS 的 URL 签名鉴权
