@@ -22,7 +22,7 @@ class RoleSchema(DefaultSchema):
     )
 
     @validates_schema
-    def verify_level(self, data):
+    def verify_level(self, data, **kwargs):
         # 等级不能高于当前用户角色等级
         RoleValidate.valid_level(
             data["level"],

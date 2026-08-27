@@ -12,5 +12,6 @@ from .language import *  # 6xxx # noqa: F403
 from .term import *  # 7xxx # noqa: F403
 from .file import *  # 8xxx # noqa: F403
 from .output import *  # 9xxx # noqa: F403
+from .identity import *  # 51xx identity-tag runtime errors # noqa: F403
 
 self_vars = vars()

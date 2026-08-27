@@ -11,7 +11,7 @@ from app.validators.join_process import (
     CreateApplicationSchema,
     SearchApplicationSchema,
 )
-from flask_apikit.utils import QueryParser
+from app.core.api import QueryParser
 
 
 class ApplicationListAPI(MoeAPIView):

@@ -119,3 +119,6 @@ gen
 
 # 储存文件
 /storage/*
+
+# External migration evidence bundles are deployment data, not source files.
+/artifacts/

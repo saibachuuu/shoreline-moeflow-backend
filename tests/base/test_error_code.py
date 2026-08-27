@@ -8,7 +8,7 @@ class ErrorCodeTestCase(MoeTestCase):
         error_codes = []
         # 取出所有MoeError的子类
         for k, v in self_vars.items():
-            if type(v) == type:
+            if isinstance(v, type):
                 if issubclass(v, MoeError):
                     error_codes.append(v.code)
         # 找出重复的错误代码

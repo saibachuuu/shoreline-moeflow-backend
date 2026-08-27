@@ -12,13 +12,13 @@ class EditAvatarSchema(DefaultSchema):
         error_messages={**required_message},
     )
     id = fields.Str(
-        missing=None,
+        load_default=None,
         validate=[object_id],
         error_messages={**required_message},
     )
 
     @validates_schema
-    def verify_v_code(self, data):
+    def verify_v_code(self, data, **kwargs):
         if data["type"] not in ["user", "team"]:
             raise RequestDataWrongError(lazy_gettext("不支持的头像类型"))
         if data["type"] != "user" and data["id"] is None:

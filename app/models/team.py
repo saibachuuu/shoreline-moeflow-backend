@@ -1,5 +1,4 @@
 import datetime
-import json
 import re
 from typing import List
 
@@ -8,9 +7,10 @@ from app.translations import lazy_gettext, gettext
 from mongoengine import (
     CASCADE,
     DENY,
+    DictField,
     Document,
     IntField,
-    Q,
+    ListField,
     ReferenceField,
     StringField,
     DateTimeField,
@@ -266,12 +266,22 @@ class Team(GroupMixin, Document):
     default_role_system_code = "beginner"
     default_role = ReferenceField("TeamRole", db_field="dr", reverse_delete_rule=DENY)
     max_user = IntField(db_field="u", required=True, default=100000)  # 人数限制
+    worker_qualification_mode = StringField(
+        db_field="wqm", default="qualified", choices=("qualified", "open")
+    )
+    # 团队成员默认的导出名单植入页序号（1 = 第一页，-1 = 最后一页）；
+    # 未设置（None）时导出使用默认第一页，项目自身的设置优先于此值。
+    staff_list_page = IntField(db_field="slp", null=True)
     # OCR限额
     ocr_quota_month = IntField(db_field="om", default=0)  # 每月限额
     ocr_quota_used = IntField(db_field="ou", default=0)  # 当月已用限额，每月1号0点清零
     ocr_quota_google_used = IntField(db_field="og", default=0)  # 谷歌 VISION 解析的张数
     ocr_quota_with_end_time = IntField(db_field="ot", default=0)  # （弃用）有时限的限额
     ocr_quota_end_time = DateTimeField(db_field="ol")  # （弃用）
+    # 画廊归档导入使用的第三方档案 API key，每项 {id, key, remark?, enabled?}
+    archive_api_keys = ListField(DictField(), db_field="aak", default=list)
+    # 画廊归档导入使用的第三方档案 API 基址（留空 = 使用系统默认 ARCHIVE_PROVIDER_API_URL）
+    archive_api_url = StringField(db_field="aau", default="")
     # 各种相关类
     role_cls = TeamRole
     permission_cls = TeamPermission
@@ -426,20 +436,33 @@ class Team(GroupMixin, Document):
             projects = projects.filter(project_set=project_set)
         # 模糊查找名称
         if word:
-            projects = projects.filter(name__icontains=word)
+            projects = projects.filter(name_search__icontains=word)
         # 查询何种进度的项目，空列表则忽略
         if isinstance(status, list) and len(status) > 0:
             projects = projects.filter(status__in=status)
         elif isinstance(status, int):
             projects = projects.filter(status=status)
         # 搜索worker
-        if mode and worker_name:
-            escaped_name = json.dumps(worker_name, ensure_ascii=True)[1:-1]
-            projects = projects.filter(
-                Q(workers__icontains=worker_name) | Q(workers__icontains=escaped_name)
+        if mode == "search-worker" and worker_name:
+            from app.models.project_member import ProjectMember
+
+            worker_tags = {
+                "provider": "raw_provider", "scan": "scanner",
+                "scan_retoucher": "cleaner", "translator": "translator",
+                "proofreader": "proofreader", "picture_editor": "typesetter",
+            }
+            member_query = ProjectMember.objects(
+                project__in=projects, status="active",
+                display_name__icontains=worker_name,
             )
+            if role:
+                member_query = member_query.filter(tags=worker_tags.get(role, role))
+            projects = projects.filter(id__in=[member.project.id for member in member_query])
         # 排序处理
-        projects = mongo_order(projects, order_by, ["-edit_time"])
+        # Projects created or updated in one batch can share edit_time.
+        # Without a unique tie-breaker pagination depends on Mongo's natural
+        # order and can return different items between requests.
+        projects = mongo_order(projects, order_by, ["-edit_time", "-id"])
         # 分页处理
         projects = mongo_slice(projects, skip, limit)
         return projects
@@ -487,10 +510,22 @@ class Team(GroupMixin, Document):
         """
         # 如果给了 role 则获取用户相关信息（角色等）
         role = None
+        base_tag = None
+        effective_permissions = []
         if user:
             role: TeamRole | None = user.get_role(self)
             if role:
                 role = role.to_api()
+            try:
+                from app.services.identity_permission import IdentityPermissionService
+
+                snapshot = IdentityPermissionService.team_snapshot(user, self)
+                effective_permissions = sorted(snapshot.effective_permissions)
+                relation = IdentityPermissionService.is_active_team_member(user, self)
+                base_tag = relation.base_tag if relation is not None else None
+            except (ImportError, AttributeError):
+                # Keep public team serialization usable during migration startup.
+                pass
         return {
             "group_type": "team",
             "id": str(self.id),
@@ -500,16 +535,72 @@ class Team(GroupMixin, Document):
             "has_avatar": bool(self._avatar),
             "max_user": self.max_user,
             "user_count": self.user_count,
+            "worker_qualification_mode": self.worker_qualification_mode,
+            "staff_list_page": self.staff_list_page,
             "default_role": str(self.default_role.id),
             "allow_apply_type": self.allow_apply_type,
             "application_check_type": self.application_check_type,
             "is_need_check_application": self.is_need_check_application(),
             "role": role,
+            "base_tag": base_tag,
+            "effective_permissions": effective_permissions,
             "create_time": self.create_time.isoformat(),
             "edit_time": self.edit_time.isoformat(),
             "ocr_quota_month": self.ocr_quota_month,
             "ocr_quota_used": self.ocr_quota_used,
+            # 脱敏展示：只返回尾号与备注，不泄露明文 key
+            "archive_api_keys": self.archive_api_keys_api(),
+            "archive_api_url": self.archive_api_url or "",
         }
+
+    def to_project_list_api(self):
+        """Compact team summary embedded in project cards."""
+        return {
+            "group_type": "team",
+            "id": str(self.id),
+            "name": self.name,
+            "worker_qualification_mode": self.worker_qualification_mode,
+        }
+
+    def to_list_api(self, user=None):
+        """Serialize the dashboard team-list fields without admin settings."""
+        base_tag = None
+        effective_permissions = []
+        if user:
+            from app.services.identity_permission import IdentityPermissionService
+
+            snapshot = IdentityPermissionService.team_snapshot(user, self)
+            base_tag = snapshot.source_tags[0] if snapshot.source_tags else None
+            effective_permissions = sorted(snapshot.effective_permissions)
+        return {
+            "group_type": "team",
+            "id": str(self.id),
+            "name": self.name,
+            "avatar": self.avatar,
+            "has_avatar": bool(self._avatar),
+            "worker_qualification_mode": self.worker_qualification_mode,
+            "base_tag": base_tag,
+            "effective_permissions": effective_permissions,
+        }
+
+    def archive_api_keys_api(self) -> list:
+        """归档 API key 的脱敏序列化（供管理界面展示/编辑定位）。"""
+        from app.utils.secrets import secret_tail
+
+        data = []
+        for index, item in enumerate(self.archive_api_keys or []):
+            if not isinstance(item, dict):
+                continue
+            key_tail = secret_tail(item.get("key", ""))
+            data.append(
+                {
+                    "id": str(item.get("id") or index),
+                    "remark": item.get("remark", "") or "",
+                    "enabled": item.get("enabled", True) is not False,
+                    "key_tail": key_tail,
+                }
+            )
+        return data
 
 
 Team.register_delete_rule(TeamRole, "group", CASCADE)

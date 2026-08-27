@@ -459,7 +459,12 @@ class Captcha(VCode):
             _create_points(draw, point_chance, width, height)
         font_path = os.path.join(APP_PATH, font_path)
         font = ImageFont.truetype(font_path, font_size)
-        content_width, content_height = font.getsize(self.content)
+
+        def _text_size(text):
+            left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
+            return right - left, bottom - top
+
+        content_width, content_height = _text_size(self.content)
         right_space = width / 10 * 2  # 右空白宽度
         left_space = 10  # 左空白宽度
         left_right_space = right_space + left_space
@@ -474,7 +479,7 @@ class Captcha(VCode):
             fg_color = fg_colors[random.randint(0, len(fg_colors) - 1)]
             x, y = left_padding, (height - content_height) / 3
             draw.text((x, y), char, font=font, fill=fg_color)  # 画上画布
-            left_padding += font.getsize(char)[0] + space_width
+            left_padding += _text_size(char)[0] + space_width
         # 图形扭曲参数
         params = [
             1 - float(random.randint(1, 2)) / 100,
@@ -486,7 +491,7 @@ class Captcha(VCode):
             0.001,
             float(random.randint(1, 2)) / 500,
         ]
-        img = img.transform(size, Image.PERSPECTIVE, params)  # 创建扭曲
+        img = img.transform(size, Image.Transform.PERSPECTIVE, params)  # 创建扭曲
         img = img.filter(ImageFilter.EDGE_ENHANCE)  # 滤镜，边界加强（阈值更大）
         return img
 

@@ -8,7 +8,6 @@ from app.core.responses import MoePagination
 from app.core.views import MoeAPIView
 from app.decorators.auth import token_required
 from app.models.user import User
-from app.models.team import TeamUserRelation
 from app.validators import ChangeInfoSchema
 from app.validators.auth import (
     ChangeEmailSchema,
@@ -20,11 +19,14 @@ from app.validators.join_process import (
     SearchInvitationSchema,
     SearchRelatedApplicationSchema,
 )
-from flask_apikit.utils import QueryParser
+from app.core.api import QueryParser
 from flask_babel import gettext
-from app.validators.project import SearchUserProjectSchema
 from app.models.project import Project
 from app.models.application import Application
+from app.services.project_member import ProjectMemberService
+from app.services.identity_permission import CLEARED, COMPLETED, NORMAL
+from app.services.user_alias import UserAliasService
+from app.utils.search import normalize_search_text
 
 
 class MeTokenAPI(MoeAPIView):
@@ -111,7 +113,23 @@ class MeInfoAPI(MoeAPIView):
         data = self.get_json(
             ChangeInfoSchema(), context={"old_name": self.current_user.name}
         )
-        self.current_user.update(**data)
+        aliases_provided = "aliases" in data
+        aliases = data.pop("aliases", None)
+        self.current_user.name = data["name"]
+        self.current_user.signature = data["signature"]
+        self.current_user.locale = data["locale"]
+        if aliases_provided:
+            # UserAliasService performs the same normalization and audit as
+            # PATCH /v1/me/aliases while saving the complete profile once.
+            UserAliasService.replace(
+                self.current_user,
+                self.current_user,
+                aliases,
+                request_id=request.headers.get("X-Request-ID")
+                or request.headers.get("Idempotency-Key"),
+            )
+        else:
+            self.current_user.save()
         self.current_user.reload()
         return {"message": gettext("修改成功"), "user": self.current_user.to_api()}
 
@@ -312,24 +330,9 @@ class MeTeamListAPI(MoeAPIView):
         word = request.args.get("word")
         p = MoePagination()
         teams = self.current_user.teams(skip=p.skip, limit=p.limit, word=word)
-        # 获取团队用户关系
-        relations: list[TeamUserRelation] = TeamUserRelation.objects(
-            group__in=teams, user=self.current_user
-        )
-        # 构建字典用于快速匹配
-        team_roles_data = {}
-        for relation in relations:
-            team_roles_data[str(relation.group.id)] = relation.role.to_api()
-        # 构建数据
-        data = []
-        for team in teams:
-            team_data = team.to_api()
-            team_role_data = team_roles_data.get(str(team.id))
-            if team_role_data:
-                team_data["role"] = team_role_data
-            else:
-                team_data["role"] = None
-            data.append(team_data)
+        # The dashboard only needs identity permissions and basic navigation
+        # data. Settings, archive keys and OCR quota belong to the detail API.
+        data = [team.to_list_api(user=self.current_user) for team in teams]
         return p.set_data(data, count=teams.count())
 
 
@@ -357,18 +360,62 @@ class MeProjectListAPI(MoeAPIView):
 
         }
         """
-        # 获取查询参数
-        query = self.get_query(
-            {"status": [QueryParser.int]},
-            SearchUserProjectSchema(),
-        )
+        raw_status = request.args.getlist("status")
+        status_tokens = [
+            token.strip()
+            for value in raw_status
+            for token in value.split(",")
+            if token.strip()
+        ]
+        status_names = {
+            "NORMAL": {NORMAL},
+            "CLEARED": {CLEARED},
+            # The UI's completed bucket contains both terminal states.
+            "COMPLETED": {COMPLETED, CLEARED},
+        }
+        requested_statuses = set()
+        for token in status_tokens:
+            if token not in status_names:
+                from app.exceptions.identity import InvalidIdentityRequestError
+
+                raise InvalidIdentityRequestError("invalid project status")
+            requested_statuses.update(status_names[token])
+
         p = MoePagination()
-        projects = self.current_user.projects(
-            status=query["status"],
-            word=query["word"],
-            skip=p.skip,
-            limit=p.limit,
+        from app.models.project_member import ProjectMember
+
+        # Resolve the user's project ids first, then let Mongo filter, count
+        # and paginate Project documents.  The previous implementation loaded
+        # every active membership and every referenced project into Python.
+        project_ids = [
+            item["project"]
+            for item in ProjectMember._get_collection().find(
+                {"user": self.current_user.pk, "status": "active"},
+                {"project": 1},
+            )
+        ]
+        projects = Project.objects(id__in=project_ids)
+        if requested_statuses:
+            projects = projects.filter(status__in=list(requested_statuses))
+        word = request.args.get("word")
+        if word:
+            projects = projects.filter(
+                name_search__icontains=normalize_search_text(word)
+            )
+        projects = projects.order_by("-edit_time")
+        project_count = projects.count()
+        paged_projects = list(
+            projects.skip(p.skip).limit(p.limit).select_related()
         )
-        data = Project.batch_to_api(projects, self.current_user)
-        p.set_data(data, count=projects.count())
-        return p
+        data = Project.batch_to_list_api(
+            paged_projects,
+            self.current_user,
+        )
+        member_summaries = ProjectMemberService.member_summaries(
+            paged_projects, compact=True
+        )
+        for item in data:
+            # Keep the integer status used by the card; detail-only aliases are
+            # intentionally not generated on this hot path.
+            item["member_summary"] = member_summaries.get(item["id"], [])
+        return p.set_data(data=data, count=project_count)

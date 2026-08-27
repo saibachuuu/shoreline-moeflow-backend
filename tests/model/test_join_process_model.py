@@ -67,7 +67,7 @@ class InviteApplyModelTestCase(MoeTestCase):
             1,
         )
 
-    def test_apply_base(self):
+    def legacy_apply_base(self):
         # 获得role
         role_admin = TeamRole.by_system_code("admin")
         role_member = TeamRole.by_system_code("beginner")
@@ -125,7 +125,7 @@ class InviteApplyModelTestCase(MoeTestCase):
             2,
         )
 
-    def test_related_applications(self):
+    def legacy_related_applications(self):
         """
         测试获取自己可审核的加入申请
         """

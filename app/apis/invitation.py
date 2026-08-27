@@ -5,14 +5,16 @@ from app.core.views import MoeAPIView
 from app.decorators.auth import token_required
 from app.decorators.url import fetch_model, fetch_group
 from app.exceptions import NoPermissionError, RoleNotExistError
-from app.models.invitation import Invitation
+from app.models.invitation import Invitation, InvitationStatus
+from app.models.project import Project
+from app.services.identity_permission import IdentityPermissionService
 from app.validators.join_process import (
     ChangeInvitationSchema,
     CheckInvitationSchema,
     CreateInvitationSchema,
     SearchInvitationSchema,
 )
-from flask_apikit.utils import QueryParser
+from app.core.api import QueryParser
 
 
 class InvitationListAPI(MoeAPIView):
@@ -114,6 +116,49 @@ class InvitationListAPI(MoeAPIView):
         @apiUse ValidateError
         """
         data = self.get_json(CreateInvitationSchema(), context={"group": group})
+        if isinstance(group, Project) and data.get("tags") is not None:
+            # Current identity flow: a project invitation assigns position
+            # tags.  The legacy role argument is ignored; the adapter creates
+            # the pending projection with the requested positions after the
+            # same tag validation the member-management screen uses.
+            if not self.current_user.can(group, group.permission_cls.INVITE_USER):
+                raise NoPermissionError
+            from app.services.project_invitation import ProjectInvitationAdapter
+
+            normalized = IdentityPermissionService.validate_project_tags(
+                self.current_user,
+                group,
+                data["user"],
+                data["tags"],
+                source="invitation",
+            )
+            member = ProjectInvitationAdapter.create_or_reuse(
+                group,
+                self.current_user,
+                data["user"],
+                tags=normalized,
+                message=data["message"],
+            )
+            if member.status == "active":
+                return {
+                    "message": gettext("此用户是项目所在团队成员，已直接加入"),
+                    "project": group.to_api(user=self.current_user),
+                }
+            invitation = (
+                Invitation.objects(
+                    user=data["user"],
+                    group=group,
+                    status=InvitationStatus.PENDING,
+                )
+                .order_by("-id")
+                .first()
+            )
+            if invitation is None:
+                raise RuntimeError("project invitation projection was not created")
+            return {
+                "message": gettext("邀请成功，请等待用户确认"),
+                "invitation": invitation.to_api(),
+            }
         return self.current_user.invite(
             data["user"], group, data["role"], data["message"]
         )
@@ -150,12 +195,35 @@ class InvitationAPI(MoeAPIView):
             invitation.group, invitation.group.permission_cls.INVITE_USER
         ):
             raise NoPermissionError
+        if (
+            isinstance(invitation.group, Project)
+            and data.get("tags") is not None
+        ):
+            # Current identity flow: update the invited member's position tags.
+            # Positions carry no hierarchy levels, so the legacy level rules
+            # do not apply; the tag policy (and worker qualification mode) is
+            # enforced by the shared validator.
+            from app.services.project_invitation import ProjectInvitationAdapter
+
+            normalized = IdentityPermissionService.validate_project_tags(
+                self.current_user,
+                invitation.group,
+                invitation.user,
+                data["tags"],
+                source="invitation",
+            )
+            ProjectInvitationAdapter.update_pending_tags(
+                invitation,
+                normalized,
+                operator=self.current_user,
+            )
+            return {"message": gettext("修改成功")}
         self_role = self.current_user.get_role(invitation.group)
         # 用户当前的等级小于或等于将要邀请进来的用户,说明是更高级用户邀请的，当前用户不能编辑
         if self_role.level <= invitation.role.level:
             raise NoPermissionError(gettext("只能修改邀请角色等级比您低的邀请"))
         # 获取将要设置的Role
-        role = invitation.group.role_cls.objects(id=data["role_id"]).first()
+        role = invitation.group.role_cls.objects(id=data.get("role_id")).first()
         if role is None:
             raise RoleNotExistError
         # 设置的角色，等级大于当前角色

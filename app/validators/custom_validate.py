@@ -18,7 +18,13 @@ def object_id(id):
 
 def cant_empty(value, field_name=None):
     if len(value) == 0:
-        raise ValidationError(gettext("不可为空"), field_names=field_name)
+        raise ValidationError(gettext("不可为空"), field_name=field_name)
+
+
+def not_zero(value, field_name=None):
+    """不允许为 0（如页序号，0 没有业务含义；正负整数均可）"""
+    if value is not None and value == 0:
+        raise ValidationError(gettext("此项不能为 0"), field_name=field_name)
 
 
 def need_in(objects):
@@ -32,7 +38,7 @@ def need_in(objects):
         else:
             list = objects
         if value not in list:
-            raise ValidationError(gettext("此项不可选"), field_names=field_name)
+            raise ValidationError(gettext("此项不可选"), field_name=field_name)
 
     return validator
 
@@ -74,7 +80,7 @@ def indexes_in(model=None, other_indexes: list = None):
         if values not in indexes:
             raise ValidationError(
                 gettext(f"不支持使用 {values} 排序，支持：{indexes}"),
-                field_names=field_name,
+                field_name=field_name,
             )
 
     return validator
@@ -169,7 +175,7 @@ class RoleValidate:
                 gettext(
                     "等级需要大于{min}，小于{max}(您的等级)".format(min=min, max=max)
                 ),
-                field_names=field_name,
+                field_name=field_name,
             )
 
 

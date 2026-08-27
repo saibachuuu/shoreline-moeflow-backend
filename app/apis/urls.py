@@ -32,23 +32,16 @@ from app.apis.user import (
 )
 from app.apis.project import (
     ProjectAPI,
-    ProjectDeletePlanAPI,
-    ProjectFinishPlanAPI,
     ProjectOCRAPI,
     ProjectOutputListAPI,
-    ProjectResumeAPI,
     ProjectTargetListAPI,
     ProjectTargetOutputListAPI,
     ProjectThumbnailAPI,
 )
-from app.apis.project_workers import (
-    ProjectWorkersAPI,
-    ProjectWorkersParseAPI,
-    ProjectWorkersAddAPI,
-)
 from app.apis.project_set import ProjectSetAPI
 
 # from app.apis.role import RoleAPI, RoleListAPI
+from app.apis.archive_import import ArchiveImportAPI, ArchiveImportTaskAPI
 from app.apis.source import FileSourceListAPI, SourceAPI, SourceRankAPI
 from app.apis.team import (
     TeamInsightProjectListAPI,
@@ -62,7 +55,6 @@ from app.apis.team import (
     TeamProjectSetListAPI,
     TeamInsightUserListAPI,
 )
-from app.apis.member import MemberAPI, MemberListAPI
 from app.apis.term import TermAPI, TermBankAPI, TermListAPI
 from app.apis.translation import SourceTranslationListAPI, TranslationAPI
 from app.apis.type import TypeAPI
@@ -74,6 +66,23 @@ from app.apis.v_code import (
     ResetPasswordVCodeAPI,
 )
 from app.apis.language import LanguageListAPI
+from app.apis.identity import (
+    IdentityTagPolicyAPI,
+    MeAliasesAPI,
+    ProjectClearAPI,
+    ProjectCompleteAPI,
+    ProjectMemberBindAPI,
+    ProjectMemberChangesAPI,
+    ProjectMemberListAPI,
+    ProjectMemberMergeAPI,
+    ProjectOwnerTransferAPI,
+    ProjectReopenAPI,
+    TeamMemberAliasesAPI,
+    TeamMemberAPI,
+    TeamMemberDefaultDisplayNameAPI,
+    TeamMemberListAPI,
+    UserAliasesAPI,
+)
 from app.apis.target import TargetAPI
 from app.apis.manga_image_translator import (
     MitImageApi,
@@ -174,6 +183,86 @@ me.add_url_rule(
     methods=["GET", "OPTIONS"],
     view_func=MeTeamListAPI.as_view("me_team_list"),
 )
+
+# 身份标签运行时 API。成员读取和写入统一经过身份服务；邀请和申请
+# 仍使用既有生命周期接口，由身份服务负责投影成员状态。
+identity = Blueprint("identity", __name__, url_prefix=v1_prefix)
+identity.add_url_rule(
+    "/me/aliases",
+    methods=["PATCH", "OPTIONS"],
+    view_func=MeAliasesAPI.as_view("me_aliases"),
+)
+identity.add_url_rule(
+    "/users/<user_id>/aliases",
+    methods=["PATCH", "OPTIONS"],
+    view_func=UserAliasesAPI.as_view("user_aliases"),
+)
+identity.add_url_rule(
+    "/projects/<project_id>/members",
+    methods=["GET", "OPTIONS"],
+    view_func=ProjectMemberListAPI.as_view("project_members"),
+)
+identity.add_url_rule(
+    "/projects/<project_id>/members/changes",
+    methods=["POST", "OPTIONS"],
+    view_func=ProjectMemberChangesAPI.as_view("project_member_changes"),
+)
+identity.add_url_rule(
+    "/projects/<project_id>/members/<member_id>/bind",
+    methods=["POST", "OPTIONS"],
+    view_func=ProjectMemberBindAPI.as_view("project_member_bind"),
+)
+identity.add_url_rule(
+    "/projects/<project_id>/members/<member_id>/merge",
+    methods=["POST", "OPTIONS"],
+    view_func=ProjectMemberMergeAPI.as_view("project_member_merge"),
+)
+identity.add_url_rule(
+    "/projects/<project_id>/owner/transfer",
+    methods=["POST", "OPTIONS"],
+    view_func=ProjectOwnerTransferAPI.as_view("project_owner_transfer"),
+)
+identity.add_url_rule(
+    "/projects/<project_id>/complete",
+    methods=["POST", "OPTIONS"],
+    view_func=ProjectCompleteAPI.as_view("project_complete"),
+)
+identity.add_url_rule(
+    "/projects/<project_id>/clear",
+    methods=["POST", "OPTIONS"],
+    view_func=ProjectClearAPI.as_view("project_clear"),
+)
+identity.add_url_rule(
+    "/projects/<project_id>/reopen",
+    methods=["POST", "OPTIONS"],
+    view_func=ProjectReopenAPI.as_view("project_reopen"),
+)
+identity.add_url_rule(
+    "/teams/<team_id>/members",
+    methods=["GET", "POST", "OPTIONS"],
+    view_func=TeamMemberListAPI.as_view("team_members"),
+)
+identity.add_url_rule(
+    "/teams/<team_id>/members/<member_id>",
+    methods=["PATCH", "DELETE", "OPTIONS"],
+    view_func=TeamMemberAPI.as_view("team_member"),
+)
+identity.add_url_rule(
+    "/teams/<team_id>/members/<member_id>/aliases",
+    methods=["PATCH", "OPTIONS"],
+    view_func=TeamMemberAliasesAPI.as_view("team_member_aliases"),
+)
+identity.add_url_rule(
+    "/teams/<team_id>/members/<member_id>/default-display-name",
+    methods=["PATCH", "OPTIONS"],
+    view_func=TeamMemberDefaultDisplayNameAPI.as_view("team_member_default_display_name"),
+)
+identity.add_url_rule(
+    "/teams/<team_id>/identity-tag-policy",
+    methods=["GET", "PATCH", "OPTIONS"],
+    view_func=IdentityTagPolicyAPI.as_view("identity_tag_policy"),
+)
+
 # 验证码模块
 v_code = Blueprint("v_code", __name__, url_prefix=v1_prefix)
 v_code.add_url_rule(
@@ -281,29 +370,14 @@ term.add_url_rule(
 project = Blueprint("project", __name__, url_prefix=v1_prefix + "/projects")
 project.add_url_rule(
     "/<project_id>",
-    methods=["GET", "PUT", "DELETE", "OPTIONS"],
+    methods=["GET", "PUT", "OPTIONS"],
     view_func=ProjectAPI.as_view("project"),
 )
 # 项目挂载模块 项目文件等
-project.add_url_rule(  # TODO：准备删除
-    "/<project_id>/delete-plan",
-    methods=["POST", "DELETE", "OPTIONS"],
-    view_func=ProjectDeletePlanAPI.as_view("project_delete_plan"),
-)
-project.add_url_rule(
-    "/<project_id>/finish-plan",
-    methods=["POST", "DELETE", "OPTIONS"],
-    view_func=ProjectFinishPlanAPI.as_view("project_finish_plan"),
-)
 project.add_url_rule(
     "/<project_id>/thumbnails",
     methods=["POST", "OPTIONS"],
     view_func=ProjectThumbnailAPI.as_view("project_thumbnails"),
-)
-project.add_url_rule(
-    "/<project_id>/resume",
-    methods=["POST", "OPTIONS"],
-    view_func=ProjectResumeAPI.as_view("project_resume"),
 )
 project.add_url_rule(
     "/<project_id>/files",
@@ -330,21 +404,20 @@ project.add_url_rule(
     methods=["POST", "OPTIONS"],
     view_func=ProjectOCRAPI.as_view("project_ocr"),
 )
-# 项目工作人员管理
 project.add_url_rule(
-    "/<project_id>/workers",
-    methods=["GET", "PUT", "OPTIONS"],
-    view_func=ProjectWorkersAPI.as_view("project_workers"),
+    "/<project_id>/import-from-archive",
+    methods=["POST", "OPTIONS"],
+    view_func=ArchiveImportAPI.as_view("archive_import"),
 )
 project.add_url_rule(
-    "/<project_id>/workers/parse",
-    methods=["POST", "OPTIONS"],
-    view_func=ProjectWorkersParseAPI.as_view("project_workers_parse"),
+    "/<project_id>/import-task",
+    methods=["GET", "OPTIONS"],
+    view_func=ArchiveImportTaskAPI.as_view("archive_import_task"),
 )
 project.add_url_rule(
-    "/<project_id>/workers/add",
+    "/<project_id>/import-task/dismiss",
     methods=["POST", "OPTIONS"],
-    view_func=ProjectWorkersAddAPI.as_view("project_workers_add"),
+    view_func=ArchiveImportTaskAPI.as_view("archive_import_task_dismiss"),
 )
 # 文件模块
 file = Blueprint("file", __name__, url_prefix=v1_prefix + "/files")
@@ -430,16 +503,6 @@ group.add_url_rule(
 #     methods=["PUT", "DELETE", "OPTIONS"],
 #     view_func=RoleAPI.as_view("role"),
 # )
-group.add_url_rule(
-    "/<group_type>/<group_id>/users",
-    methods=["GET", "OPTIONS"],
-    view_func=MemberListAPI.as_view("member_list"),
-)
-group.add_url_rule(
-    "/<group_type>/<group_id>/users/<user_id>",
-    methods=["PUT", "DELETE", "OPTIONS"],
-    view_func=MemberAPI.as_view("member"),
-)
 # 目标
 target = Blueprint("target", __name__, url_prefix=v1_prefix + "/targets")
 target.add_url_rule(

@@ -3,7 +3,7 @@ from app.core.views import MoeAPIView
 from app.models.team import Team
 from app.exceptions.base import RequestDataWrongError
 from app.models.project import Project
-from flask_apikit.utils.query import QueryParser
+from app.core.api import QueryParser
 
 
 class TypeAPI(MoeAPIView):

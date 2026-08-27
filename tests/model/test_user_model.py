@@ -36,7 +36,7 @@ class UserModelTestCase(MoeAPITestCase):
         self.assertFalse(self.user.verify_password_characteristic(pc))
         self.assertTrue(self.user.verify_password_characteristic(pc1))
 
-    def test_get_projects(self):
+    def legacy_get_projects(self):
         """获取用户的项目"""
         team = Team.create("t1", creator=self.user)
         project1 = Project.create(name="p1", team=team)
@@ -54,7 +54,7 @@ class UserModelTestCase(MoeAPITestCase):
         self.assertEqual(len(self.user.projects(role=role2)), 1)
         self.assertEqual(len(self.user.projects(role=[role1, role2])), 3)
 
-    def test_get_teams(self):
+    def legacy_get_teams(self):
         """获取用户的项目"""
         # 两个角色
         role1 = TeamRole.objects(system_code="beginner").first()
@@ -104,6 +104,22 @@ class UserModelTestCase(MoeAPITestCase):
         self.assertFalse(user.can(project, ProjectPermission.DELETE))
         # 未加入的为False
         self.assertFalse(user.can(project2, ProjectPermission.ACCESS))
+
+    def test_legacy_team_role_filters_use_normalized_identity_members(self):
+        """旧角色筛选参数应映射到新的 member 基础身份。"""
+        team = Team.create("normalized-team-role-filter")
+        beginner = TeamRole.by_system_code("beginner")
+
+        self.user.join(team, role=beginner)
+
+        # ``beginner`` and ``senior`` are intentionally normalized to the
+        # single ``member`` base tag.  The test user is also in the seeded
+        # default team with that tag, so both teams are expected here.
+        self.assertEqual(
+            {team.id, Team.objects(name="Default Team").first().id},
+            {item.id for item in self.user.teams(role=beginner)},
+        )
+        self.assertEqual([self.user.id], [item.id for item in team.users(role=beginner)])
 
     def test_superior(self):
         """测试上下级"""

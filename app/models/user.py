@@ -1,28 +1,33 @@
-from app.models.output import Output
 import datetime
 import re
+import time
 from typing import NoReturn, Optional, Union
 
+import jwt
 from flask import current_app, g
 from flask_babel import gettext
-from itsdangerous import BadSignature, TimedJSONWebSignatureSerializer
+from itsdangerous import BadSignature, URLSafeTimedSerializer
 from mongoengine import (
     CASCADE,
     NULLIFY,
     BooleanField,
     DateTimeField,
     Document,
+    ListField,
     StringField,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import oss
+from app.constants.locale import Locale
 from app.exceptions import (
     ApplicationAlreadyExistError,
     BadTokenError,
+    CreatorCanNotLeaveError,
     EmailRegexError,
     EmailRegisteredError,
     InvitationAlreadyExistError,
+    MemberAlreadyOwnerError,
     NoPermissionError,
     TargetIsFullError,
     UserAlreadyJoinedError,
@@ -34,20 +39,51 @@ from app.exceptions import (
 from app.models.application import Application, ApplicationStatus
 from app.models.invitation import Invitation, InvitationStatus
 from app.models.message import Message
+from app.models.output import Output
 from app.models.project import Project, ProjectRole, ProjectUserRelation
 from app.models.site_setting import SiteSetting
-from app.models.team import Team, TeamPermission, TeamUserRelation
+from app.models.team import Team, TeamPermission, TeamRole, TeamUserRelation
 from app.regexs import EMAIL_REGEX, USER_NAME_REGEX
-from app.constants.locale import Locale
 from app.utils.hash import md5
 from app.utils.mongo import mongo_order, mongo_slice
+from app.utils.search import normalize_search_text
+
+
+class _IdentityRelation:
+    """Read-only compatibility view backed exclusively by identity members."""
+
+    def __init__(self, member, role):
+        self.member = member
+        self.user = member.user
+        self.group = member.team if hasattr(member, "team") else member.project
+        self.role = role
+
+    def __getattr__(self, name):
+        return getattr(self.member, name)
+
+    def delete(self):
+        raise RuntimeError("identity relations must be changed through identity services")
+
+    def save(self, *args, **kwargs):
+        raise RuntimeError("identity relations must be changed through identity services")
 
 
 class User(Document):
-    meta = {"indexes": ["email", "name"]}
+    meta = {
+        "indexes": [
+            "email",
+            "name",
+            "aliases",
+            {"fields": ["name_search"], "name": "user_name_search_v1"},
+            {"fields": ["aliases_search"], "name": "user_aliases_search_v1"},
+        ]
+    }
 
     email = StringField(required=True, unique=True, db_field="e")  # 邮箱
     name = StringField(required=True, unique=True, db_field="n")  # 姓名
+    aliases = ListField(StringField(), default=list, db_field="as")
+    name_search = StringField(default="", db_field="ns")
+    aliases_search = ListField(StringField(), default=list, db_field="asrch")
     signature = StringField(default="", db_field="s")  # 个性签名
     locale = StringField(default=Locale.AUTO, db_field="l")  # 语言 # NOT USED
     timezone = StringField(default="", db_field="t")  # 时区
@@ -56,6 +92,36 @@ class User(Document):
     password_hash = StringField(db_field="p")  # 密码哈希
     admin = BooleanField(default=False)
     create_time = DateTimeField(db_field="c", default=datetime.datetime.utcnow)
+
+    def clean(self):
+        # Keep direct model writes subject to the same site-alias rules as the
+        # dedicated alias service.  The service applies the configured count
+        # limit before saving; this fallback keeps old callers normalized.
+        from app.services.identity_permission import normalize_aliases
+
+        try:
+            from flask import current_app
+
+            max_count = int(
+                current_app.config.get(
+                    "MAX_USER_ALIASES",
+                    current_app.config.get("max_user_aliases", 10),
+                )
+            )
+        except RuntimeError:
+            max_count = 10
+
+        self.aliases = normalize_aliases(
+            list(self.aliases or []), name=self.name, max_count=max_count
+        )
+        self.name_search = normalize_search_text(self.name)
+        self.aliases_search = [
+            normalized
+            for normalized in (
+                normalize_search_text(alias) for alias in (self.aliases or [])
+            )
+            if normalized
+        ]
 
     @classmethod
     def create(cls, name: str, email: str, password: str) -> "User":
@@ -173,14 +239,13 @@ class User(Document):
             return False
 
     def generate_token(self, expires_in=2592000):
-        # 使用app secret key进行加密, 30天过期
-        s = TimedJSONWebSignatureSerializer(
-            current_app.config["SECRET_KEY"], expires_in=expires_in
-        )
-        token = s.dumps(
+        # itsdangerous 2.1 removed the old JWS serializer. New tokens use its
+        # supported timed format; verification below still accepts the legacy
+        # JWS format so active sessions survive the dependency upgrade.
+        serializer = URLSafeTimedSerializer(current_app.config["SECRET_KEY"])
+        return serializer.dumps(
             {"id": str(self.id), "pc": self.password_characteristic}
-        ).decode("utf8")
-        return token
+        )
 
     @classmethod
     def verify_token(cls, token: str):
@@ -189,11 +254,28 @@ class User(Document):
             raise BadTokenError(gettext("令牌格式错误，应形如 Bearer x.x.x"))
         # 去掉'Bearer ',获得token内容
         token = token[7:]
-        s = TimedJSONWebSignatureSerializer(current_app.config["SECRET_KEY"])
+        secret_key = current_app.config["SECRET_KEY"]
+        serializer = URLSafeTimedSerializer(secret_key)
         try:
-            data = s.loads(token)
-        except BadSignature as e:
-            raise BadTokenError(f"令牌错误，{e.message}")
+            data = serializer.loads(token, max_age=2592000)
+        except BadSignature as serializer_error:
+            # Tokens issued before this migration used HS512 JWS with an exp
+            # header rather than an exp claim in the payload.
+            try:
+                header = jwt.get_unverified_header(token)
+                if header.get("alg") != "HS512":
+                    raise jwt.InvalidTokenError("unexpected legacy token algorithm")
+                data = jwt.decode(
+                    token,
+                    secret_key,
+                    algorithms=["HS512"],
+                    options={"verify_exp": False},
+                )
+                expires_at = int(header["exp"])
+                if expires_at < int(time.time()):
+                    raise jwt.ExpiredSignatureError("legacy token has expired")
+            except jwt.InvalidTokenError:
+                raise BadTokenError(f"令牌错误，{serializer_error}")
         # 获取用户
         user = User.objects(id=data.get("id")).first()
         # 没有此用户
@@ -237,6 +319,7 @@ class User(Document):
             "has_avatar": self.has_avatar(),
             "locale": Locale.to_api(id=self.locale),
             "admin": self.admin,
+            "aliases": list(self.aliases or []),
         }
         if g.get("current_user") and g.get("current_user").admin:
             data = {**data, **{"email": self.email}}
@@ -259,14 +342,23 @@ class User(Document):
         :param word: 模糊搜索词
         :return:
         """
-        my_teams = TeamUserRelation.objects(user=self).scalar("group").no_dereference()
+        from app.models.team_member import TeamMember
+
+        members = TeamMember.objects(user=self, status="active")
         if role:
-            if isinstance(role, list):
-                my_teams = my_teams.filter(role__in=role)
-            else:
-                my_teams = my_teams.filter(role=role)
-        # 进一步筛选
-        teams = Team.objects(id__in=[my_team.id for my_team in my_teams])
+            role_codes = {
+                getattr(item, "system_code", item) for item in (role if isinstance(role, list) else [role])
+            }
+            # TeamMember intentionally stores only the normalized
+            # creator/admin/member identities.  Keep the public legacy role
+            # filters usable while translating their old member variants at
+            # the query boundary.
+            role_codes = {
+                "member" if code in {"beginner", "senior"} else code
+                for code in role_codes
+            }
+            members = members.filter(base_tag__in=role_codes)
+        teams = Team.objects(id__in=[member.team.id for member in members])
         # 模糊搜索词
         if word:
             teams = teams.filter(name__icontains=word)
@@ -276,17 +368,49 @@ class User(Document):
 
     def get_team_relation(self, team):
         """获取和某个团队的关系"""
-        relation = TeamUserRelation.objects(user=self, group=team).first()
-        if relation:
-            return relation
-        return None
+        from app.models.team_member import TeamMember
+
+        member = TeamMember.objects(user=self, team=team, status="active").first()
+        if member is None:
+            return None
+        role = TeamRole.by_system_code(member.base_tag)
+        return _IdentityRelation(member, role)
 
     def join_team(self, team, role=None):
         """加入团队"""
-        if not self.get_team_relation(team):
-            if role is None:
-                role = team.default_role
-            return TeamUserRelation(user=self, group=team, role=role).save()
+        from app.models.team_member import TeamMember
+        from app.services.team_member import TeamMemberService
+
+        member = TeamMember.objects(user=self, team=team).first()
+        if member is not None and member.status == "active":
+            requested = getattr(role, "system_code", None)
+            if requested and requested in {"creator", "admin", "member"} and requested != member.base_tag:
+                member.base_tag = requested
+                member.version += 1
+                member.save()
+            return _IdentityRelation(member, TeamRole.by_system_code(member.base_tag))
+        role_code = getattr(role or team.default_role, "system_code", "member")
+        role_code = role_code if role_code in {"creator", "admin", "member"} else "member"
+        needs_slot = member is None or member.status != "active"
+        if needs_slot:
+            TeamMemberService._reserve_capacity(team)
+        try:
+            if member is None:
+                member = TeamMember(
+                    team=team, user=self, base_tag=role_code, status="active"
+                )
+            else:
+                member.base_tag = role_code
+                member.status = "active"
+                member.removed_time = None
+                member.version += 1
+            member.save()
+        except Exception:
+            if needs_slot:
+                TeamMemberService._sync_count(team)
+            raise
+        TeamMemberService._sync_count(team)
+        return _IdentityRelation(member, TeamRole.by_system_code(member.base_tag))
 
     # =====项目操作=====
     def projects(
@@ -309,19 +433,22 @@ class User(Document):
         :param status: 项目进度
         :param word: 模糊搜索词
         """
-        relational_projects = (
-            ProjectUserRelation.objects(user=self).scalar("group").no_dereference()
-        )
-        # 过滤角色
+        from app.models.project_member import ProjectMember
+
+        members = ProjectMember.objects(user=self, status="active")
         if role:
-            if isinstance(role, list):
-                relational_projects = relational_projects.filter(role__in=role)
-            else:
-                relational_projects = relational_projects.filter(role=role)
-        # 进一步筛选
-        projects = Project.objects(
-            id__in=[project.id for project in relational_projects]
-        )
+            role_codes = {
+                getattr(item, "system_code", item) for item in (role if isinstance(role, list) else [role])
+            }
+            role_tags = {
+                "creator": "creator", "admin": "admin", "coordinator": "proofreader",
+                "proofreader": "proofreader", "translator": "translator",
+                "picture_editor": "typesetter", "supporter": "translator",
+            }
+            tags = {role_tags.get(code, code) for code in role_codes}
+            members = [member for member in members if tags.intersection(member.tags)]
+        project_ids = {member.project.id for member in members}
+        projects = Project.objects(id__in=list(project_ids))
         # 限制在某个项目集中
         if project_set:
             projects = projects.filter(project_set=project_set)
@@ -333,7 +460,7 @@ class User(Document):
             projects = projects.filter(status=status)
         # 模糊搜索词
         if word:
-            projects = projects.filter(name__icontains=word)
+            projects = projects.filter(name_search__icontains=word)
         # 排序处理
         projects = mongo_order(projects, order_by, ["-edit_time"])
         projects = mongo_slice(projects, skip, limit)
@@ -341,17 +468,60 @@ class User(Document):
 
     def get_project_relation(self, project):
         """获取与某个项目的关系"""
-        relation = ProjectUserRelation.objects(user=self, group=project).first()
-        if relation:
-            return relation
-        return None
+        from app.models.project_member import ProjectMember
+
+        member = ProjectMember.objects(user=self, project=project, status="active").first()
+        if member is None:
+            return None
+        tag_to_role = {
+            "creator": "creator", "admin": "admin", "proofreader": "proofreader",
+            "translator": "translator", "typesetter": "picture_editor",
+        }
+        role_code = next((tag_to_role[tag] for tag in member.tags if tag in tag_to_role), "translator")
+        return _IdentityRelation(member, ProjectRole.by_system_code(role_code))
 
     def join_project(self, project, role=None):
         """加入项目"""
-        if not self.get_project_relation(project):
-            if role is None:
-                role = project.default_role
-            return ProjectUserRelation(user=self, group=project, role=role).save()
+        from app.models.project_member import ProjectMember
+
+        member = ProjectMember.objects(user=self, project=project).first()
+        role_code = getattr(role or project.default_role, "system_code", "translator")
+        # The project owner is represented by the creator identity tag.  Some
+        # legacy application/invitation paths pass ``admin`` while repairing
+        # a missing projection, so never let that compatibility argument
+        # downgrade the owner's identity.
+        is_owner = project.owner_user == self
+        if is_owner:
+            role_code = "creator"
+        tag_map = {
+            "creator": ["creator"], "admin": ["admin"], "coordinator": ["proofreader"],
+            "proofreader": ["proofreader"], "translator": ["translator"],
+            "picture_editor": ["typesetter"], "supporter": ["translator"],
+        }
+        if member is not None and member.status == "active":
+            if is_owner and member.tags != tag_map["creator"]:
+                member.tags = list(tag_map["creator"])
+                member.version += 1
+                member.save()
+            return _IdentityRelation(member, ProjectRole.by_system_code(role_code))
+        if member is None:
+            from app.services.project_member import ProjectMemberService
+
+            member = ProjectMember(
+                project=project,
+                user=self,
+                display_name=ProjectMemberService.team_default_display_name(project, self),
+                tags=tag_map.get(role_code, []),
+                status="active",
+            )
+        else:
+            member.tags = tag_map.get(role_code, [])
+            member.status = "active"
+            member.removed_time = None
+            member.version += 1
+        member.save()
+        project.update(set__user_count=ProjectMember.objects(project=project, status="active").count())
+        return _IdentityRelation(member, ProjectRole.by_system_code(role_code))
 
     # =====加入流程=====
     def invitations(self, group=None, status=None, skip=None, limit=None):
@@ -487,23 +657,45 @@ class User(Document):
 
     def join(self, group, role=None):
         """加入某个group"""
-        relation = None
         if isinstance(group, Team):
-            relation = self.join_team(group, role)
-        elif isinstance(group, Project):
-            relation = self.join_project(group, role)
-        # 增加团体人数计数
-        group.update(inc__user_count=1)
-        return relation
+            return self.join_team(group, role)
+        if isinstance(group, Project):
+            return self.join_project(group, role)
+        return None
 
     def leave(self, group):
         """离开某个group"""
         relation = self.get_relation(group)
+        if isinstance(group, Project):
+            if group.owner_user == self or (
+                relation is not None
+                and getattr(relation.role, "system_code", None) == "creator"
+            ):
+                raise MemberAlreadyOwnerError
+        elif isinstance(group, Team):
+            if relation is not None and getattr(
+                relation.role, "system_code", None
+            ) == "creator":
+                raise CreatorCanNotLeaveError
+            from app.models.team_member import TeamMember
+
+            identity_member = TeamMember.objects(
+                team=group, user=self, status="active"
+            ).first()
+            if identity_member is not None and identity_member.base_tag == "creator":
+                raise CreatorCanNotLeaveError
         if relation:
-            # 删除关系
-            relation.delete()
-            # 减少团体人数计数
-            group.update(dec__user_count=1)
+            member = relation.member
+            member.status = "removed"
+            member.removed_time = datetime.datetime.utcnow()
+            member.version += 1
+            member.save()
+            if isinstance(group, Team):
+                from app.models.team_member import TeamMember
+                group.update(set__user_count=TeamMember.objects(team=group, status="active").count())
+            else:
+                from app.models.project_member import ProjectMember
+                group.update(set__user_count=ProjectMember.objects(project=group, status="active").count())
 
     def get_role(self, group):
         """获取在group中的角色"""
@@ -523,8 +715,14 @@ class User(Document):
         """设置在group中的角色"""
         relation = self.get_relation(group)
         if relation:
-            relation.role = role
-            relation.save()
+            role_code = getattr(role, "system_code", role)
+            if isinstance(group, Team):
+                relation.member.base_tag = role_code if role_code in {"creator", "admin", "member"} else "member"
+            else:
+                tag_map = {"creator": ["creator"], "admin": ["admin"], "coordinator": ["proofreader"], "proofreader": ["proofreader"], "translator": ["translator"], "picture_editor": ["typesetter"], "supporter": ["translator"]}
+                relation.member.tags = tag_map.get(role_code, [])
+            relation.member.version += 1
+            relation.member.save()
 
     def is_superior(self, group, user):
         """在group中是否是另一个用户的上级"""
@@ -537,9 +735,24 @@ class User(Document):
 
     def can(self, group, permission):
         """在group是否拥有某个权限"""
-        role = self.get_role(group)
-        if role:
-            return role.has_permission(permission)
+        from app.services.identity_permission import IdentityPermissionService
+
+        if isinstance(group, Project):
+            return IdentityPermissionService.can_project(self, group, permission)
+        if isinstance(group, Team):
+            if isinstance(permission, int):
+                team_permissions = {
+                    1: "ACCESS", 5: "DELETE", 10: "CHANGE", 1010: "AUTO_BECOME_PROJECT_ADMIN",
+                    101: "CHECK_USER", 105: "INVITE_USER", 110: "DELETE_USER",
+                    115: "CHANGE_USER_ROLE", 120: "CHANGE_USER_REMARK",
+                    1020: "CREATE_TERM_BANK", 1030: "ACCESS_TERM_BANK", 1040: "CHANGE_TERM_BANK",
+                    1050: "DELETE_TERM_BANK", 1060: "CREATE_TERM", 1070: "CHANGE_TERM",
+                    1080: "DELETE_TERM", 1090: "CREATE_PROJECT", 1100: "CREATE_PROJECT_SET",
+                    1110: "CHANGE_PROJECT_SET", 1120: "DELETE_PROJECT_SET", 1130: "USE_OCR_QUOTA",
+                    1140: "USE_MT_QUOTA", 1150: "INSIGHT",
+                }
+                permission = f"team:{team_permissions.get(permission, permission)}"
+            return IdentityPermissionService.team_snapshot(self, group).has(permission)
         return False
 
     def admin_can(self):

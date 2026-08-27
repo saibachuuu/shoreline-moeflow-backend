@@ -8,6 +8,7 @@ from app.models.user import User
 from app.models.language import Language
 from flask import json, request, current_app
 from flask_babel import gettext
+import uuid
 
 from app.core.responses import MoePagination
 from app.core.views import MoeAPIView
@@ -21,21 +22,94 @@ from app.tasks.output_team_projects import output_team_projects
 from app.validators.project import (
     CreateProjectSchema,
     ImportProjectSchema,
-    SearchTeamProjectSchema,
     TeamInsightProjectListSchema,
     TeamInsightUserListSchema,
 )
-from app.apis.project_workers import WORKER_ROLE_EN_TO_CN
 from app.validators.team import CreateTeamSchema, EditTeamSchema
-from flask_apikit.utils import QueryParser
-from app.models.project import ProjectRole, ProjectSet, ProjectUserRelation
+from app.models.project import ProjectRole, ProjectSet
+from app.services.project_member import ProjectMemberService
+from app.services.team_member import TeamMemberService
+from app.services.identity_permission import IdentityPermissionService
 from app.validators.project import ProjectSetsSchema
-from flask_apikit.exceptions import ValidateError
+from app.utils.secrets import decrypt_secret, encrypt_secret
+from app.validators.archive_import import normalize_archive_api_url
+from app.exceptions.base import ValidateError
 
 
 def getLanguageByCode(code):
     lang = Language.by_code(code)
     return lang.id
+
+
+def _project_with_member_summary(project, user):
+    """Serialize a single created/imported project with its member summary.
+
+    List endpoints fill ``member_summary`` per page; single-project responses
+    (create/import/lifecycle/detail) must do the same so the frontend member
+    stats never render with an undefined summary.
+    """
+    data = project.to_api(user=user)
+    data["member_summary"] = ProjectMemberService.member_summaries([project]).get(
+        str(project.id), []
+    )
+    return data
+
+
+def _apply_archive_api_keys(team, submitted):
+    """合并前端提交的归档 API key 列表。
+
+    提交项语义：
+    - 含 id（可选带 key）→ 更新现有项（remark/enabled；带 key 则替换明文）
+    - 不含 id 且含 key → 新增项
+    - 现有项中未被提交引用的 id → 删除
+    """
+    existing = {
+        str(item.get("id")): dict(item)
+        for item in (team.archive_api_keys or [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    result = []
+    seen_ids = set()
+    for raw in submitted:
+        if not isinstance(raw, dict):
+            raise ValidateError(gettext("archive_api_keys 必须是对象数组"))
+        item_id = str(raw.get("id") or "").strip()
+        has_key = raw.get("key") is not None
+        if item_id:
+            seen_ids.add(item_id)
+            base = existing.get(item_id)
+            if base is None:
+                raise ValidateError(gettext("archive_api_keys 包含不存在的 id"))
+            base["remark"] = str(raw.get("remark", base.get("remark", "")) or "")[:200]
+            base["enabled"] = raw.get("enabled", base.get("enabled", True)) is not False
+            if has_key:
+                new_key = str(raw["key"]).strip()
+                if not new_key:
+                    raise ValidateError(gettext("archive API key 不能为空"))
+                base["key"] = encrypt_secret(new_key[:512])
+            elif base.get("key"):
+                # Re-save legacy plaintext values in encrypted form whenever a
+                # team settings update touches the key list.
+                try:
+                    base["key"] = encrypt_secret(decrypt_secret(base["key"]))
+                except ValueError as exc:
+                    raise ValidateError(gettext(str(exc))) from exc
+            result.append(base)
+        elif has_key:
+            new_key = str(raw["key"]).strip()
+            if not new_key:
+                raise ValidateError(gettext("archive API key 不能为空"))
+            result.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "key": encrypt_secret(new_key[:512]),
+                    "remark": str(raw.get("remark") or "")[:200],
+                    "enabled": raw.get("enabled", True) is not False,
+                }
+            )
+        else:
+            raise ValidateError(gettext("archive_api_keys 每项需要 id 或 key"))
+    return result
 
 
 class TeamListAPI(MoeAPIView):
@@ -181,6 +255,33 @@ class TeamAPI(MoeAPIView):
         if not self.current_user.can(team, TeamPermission.CHANGE):
             raise NoPermissionError
         data = self.get_json(EditTeamSchema(), context={"team": team})
+        # 工作人员资格校验模式只允许团队创建者修改，管理员不能绕过
+        # 资格体系或让非成员任意进入职位。
+        if "worker_qualification_mode" in data and not IdentityPermissionService.is_team_creator(
+            self.current_user, team
+        ):
+            raise NoPermissionError(
+                gettext("只有团队创建者可以修改工作人员资格校验设置")
+            )
+        if "archive_api_keys" in data:
+            data["archive_api_keys"] = _apply_archive_api_keys(
+                team, data["archive_api_keys"]
+            )
+        if "archive_api_url" in data:
+            raw_api_url = (data["archive_api_url"] or "").strip()
+            if raw_api_url:
+                try:
+                    data["archive_api_url"] = normalize_archive_api_url(
+                        raw_api_url,
+                        allowed_hosts=current_app.config.get(
+                            "ARCHIVE_PROVIDER_API_ALLOWED_HOSTS", ()
+                        ),
+                        require_allowlist=True,
+                    )
+                except ValueError as exc:
+                    raise ValidateError(gettext(str(exc))) from exc
+            else:
+                data["archive_api_url"] = ""
         if data:
             team.update(**data)
             team.reload()
@@ -254,74 +355,78 @@ class TeamProjectListAPI(MoeAPIView):
 
         }
         """
-        # 检查是否有访问团队权限
-        if not self.current_user.can(team, TeamPermission.ACCESS):
-            raise NoPermissionError
-        # 获取查询参数
-        query = self.get_query(
-            {
-                "status": [QueryParser.int],
-                "project_sets": [str],
-            },
-            SearchTeamProjectSchema(),
-            context={"team": team},
+        mode = request.args.get("mode")
+        if mode is None:
+            mode = (
+                "search-worker"
+                if request.args.get("tag") or request.args.get("worker_name")
+                else "search-project-name"
+            )
+        if mode not in ("search-project-name", "search-worker"):
+            from app.exceptions.identity import InvalidIdentityRequestError
+
+            raise InvalidIdentityRequestError("invalid project search mode")
+        raw_status = request.args.getlist("status")
+        status_tokens = []
+        for value in raw_status:
+            status_tokens.extend(value.split(","))
+        status = [token.strip() for token in status_tokens if token.strip()]
+        project_sets = request.args.getlist("project_sets")
+        expanded_project_sets = [
+            part.strip()
+            for value in project_sets
+            for part in value.split(",")
+            if part.strip()
+        ]
+        single_project_set = request.args.get("project_set")
+        if single_project_set:
+            expanded_project_sets.append(single_project_set)
+        unique_project_set_ids = list(dict.fromkeys(expanded_project_sets))
+        if expanded_project_sets:
+            from bson import ObjectId
+
+            valid_ids = []
+            for value in unique_project_set_ids:
+                try:
+                    valid_ids.append(ObjectId(value))
+                except (TypeError, ValueError):
+                    continue
+            project_sets = (
+                list(ProjectSet.objects(id__in=valid_ids, team=team))
+                if len(valid_ids) == len(unique_project_set_ids)
+                else []
+            )
+            if len(project_sets) != len(unique_project_set_ids):
+                from app.exceptions import ProjectSetNotExistError
+
+                raise ProjectSetNotExistError
+        else:
+            project_sets = None
+
+        projects = ProjectMemberService.search_team_projects(
+            team,
+            self.current_user,
+            mode=mode,
+            word=request.args.get("word"),
+            worker_name=request.args.get("worker_name"),
+            tag=request.args.get("tag"),
+            status=status or None,
+            project_set=None,
+            project_sets=project_sets,
         )
         p = MoePagination()
-        mode = query.get("mode")
-        role = query.get("role")
-        worker_name = query.get("worker_name")
-        if mode and worker_name and role:
-            projects = team.projects(
-                project_set=query["project_set"],
-                project_sets=query["project_sets"],
-                status=query["status"],
-                word=query["word"],
-                mode=mode,
-                role=None,
-                worker_name=worker_name,
-                skip=None,
-                limit=None,
-            )
-            role_cn = WORKER_ROLE_EN_TO_CN.get(role)
-            filtered = []
-            for proj in projects:
-                try:
-                    raw_workers = json.loads(proj.workers or "{}")
-                except Exception:
-                    continue
-                if not isinstance(raw_workers, dict):
-                    continue
-                names = []
-                for key in (role, role_cn):
-                    if key:
-                        names_list = raw_workers.get(key, [])
-                        if isinstance(names_list, list):
-                            names.extend(names_list)
-                if any(worker_name in name for name in names):
-                    filtered.append(proj)
-            total = len(filtered)
-            paged = filtered[p.skip : p.skip + p.limit]
-            data = Project.batch_to_api(
-                paged, self.current_user, inherit_admin_team=team
-            )
-            p.set_data(data, count=total)
-            return p
-        projects = team.projects(
-            project_set=query["project_set"],
-            project_sets=query["project_sets"],
-            status=query["status"],
-            word=query["word"],
-            skip=p.skip,
-            limit=p.limit,
-            mode=mode,
-            role=role,
-            worker_name=worker_name,
+        paged_projects = list(projects[p.skip : p.skip + p.limit].select_related())
+        data = Project.batch_to_list_api(
+            paged_projects,
+            self.current_user,
+            team=team,
         )
-        data = Project.batch_to_api(
-            projects, self.current_user, inherit_admin_team=team
+        member_summaries = ProjectMemberService.member_summaries(
+            paged_projects, compact=True
         )
-        p.set_data(data, count=projects.count())
-        return p
+        for item in data:
+            item["member_summary"] = member_summaries.get(item["id"], [])
+        return p.set_data(data=data, count=projects.count())
 
     @token_required
     @fetch_model(Team)
@@ -375,7 +480,7 @@ class TeamProjectListAPI(MoeAPIView):
         )
         return {
             "message": gettext("创建成功"),
-            "project": project.to_api(user=self.current_user),
+            "project": _project_with_member_summary(project, self.current_user),
         }
 
 
@@ -436,7 +541,7 @@ class TeamProjectImportAPI(MoeAPIView):
         )
         return {
             "message": gettext("创建成功"),
-            "project": project.to_api(user=self.current_user),
+            "project": _project_with_member_summary(project, self.current_user),
         }
 
 
@@ -468,7 +573,7 @@ class TeamProjectSetListAPI(MoeAPIView):
         # 分页
         p = MoePagination()
         objects = team.project_sets(skip=p.skip, limit=p.limit, word=word)
-        return p.set_objects(objects)
+        return p.set_objects(objects, func="to_list_api")
 
     @token_required
     @fetch_model(Team)
@@ -502,21 +607,34 @@ class TeamProjectSetListAPI(MoeAPIView):
         return {"message": gettext("创建成功"), "project_set": project_set.to_api()}
 
 
+def _insight_project_data(project: Project) -> dict:
+    data = project.to_api(with_team=False)
+    return {
+        "group_type": data["group_type"],
+        "id": data["id"],
+        "name": data["name"],
+        "project_set": data["project_set"],
+    }
+
+
 def get_insight_user_projects_data(
     user: User, team_projects: List[Project], /, *, skip=0, limit=5
 ):
-    relations = (
-        ProjectUserRelation.objects(user=user, group__in=team_projects)
-        .skip(skip)
-        .limit(limit)
-    )
+    from app.models.project_member import ProjectMember
+    relations = ProjectMember.objects(
+        user=user, project__in=team_projects, status="active"
+    ).skip(skip).limit(limit)
     user_projects_data = {
         "projects": [],
         "count": relations.count(),
     }
     for relation in relations:
+        project_data = _insight_project_data(relation.project)
+        project_data["member_summary"] = [
+            relation.to_api(include_permissions=False)
+        ]
         user_projects_data["projects"].append(
-            {**relation.group.to_api(with_team=False), "role": relation.role.to_api()}
+            project_data
         )
     return user_projects_data
 
@@ -529,15 +647,16 @@ class TeamInsightUserListAPI(MoeAPIView):
             raise NoPermissionError(gettext("您没有权限查看本团队项目统计"))
         query = self.get_query(None, TeamInsightUserListSchema())
         p = MoePagination(max_limit=10)
-        users = team.users(
-            skip=p.skip, limit=p.limit, word=query["word"]
-        ).no_dereference()
+        team_members = TeamMemberService.list_members(
+            team, self.current_user, status="active", word=query["word"]
+        )
+        users = [member.user for member in team_members]
         team_projects = team.projects(status=ProjectStatus.WORKING).no_dereference()
         data = []
-        for user in users:
+        for user in users[p.skip : p.skip + p.limit]:
             user_projects_data = get_insight_user_projects_data(user, team_projects)
             data.append({**user_projects_data, "user": user.to_api()})
-        return p.set_data(data=data, count=users.count())
+        return p.set_data(data=data, count=len(users))
 
 
 class TeamInsightUserProjectListAPI(MoeAPIView):
@@ -547,7 +666,7 @@ class TeamInsightUserProjectListAPI(MoeAPIView):
     def get(self, team: Team, user: User):
         if not self.current_user.can(team, TeamPermission.INSIGHT):
             raise NoPermissionError(gettext("您没有权限查看本团队项目统计"))
-        if user.get_relation(team) is None:
+        if TeamMemberService.for_user(team, user, active_only=True) is None:
             raise UserNotExistError
         p = MoePagination()
         team_projects = team.projects(status=ProjectStatus.WORKING).no_dereference()
@@ -560,15 +679,21 @@ class TeamInsightUserProjectListAPI(MoeAPIView):
 
 
 def get_insight_project_users_data(project: Project, /, *, skip=0, limit=5):
-    relations = ProjectUserRelation.objects(group=project).skip(skip).limit(limit)
+    from app.models.project_member import ProjectMember
+    relations = ProjectMember.objects(project=project, status="active").skip(skip).limit(limit)
     project_users_data = {
         "users": [],
         "count": relations.count(),
     }
     for relation in relations:
-        project_users_data["users"].append(
-            {**relation.user.to_api(), "role": relation.role.to_api()}
-        )
+        member_data = relation.to_api(include_permissions=False)
+        if relation.user is not None:
+            member_data["name"] = relation.user.name
+        else:
+            # External members carry no ``user`` document; expose their
+            # display name under the same key so consumers always find it.
+            member_data["name"] = relation.display_name
+        project_users_data["users"].append(member_data)
     return project_users_data
 
 
@@ -588,7 +713,7 @@ class TeamInsightProjectListAPI(MoeAPIView):
             project_users_data = get_insight_project_users_data(project)
             project_data = {
                 **project_users_data,
-                "project": project.to_api(with_team=False),
+                "project": _insight_project_data(project),
             }
             if self.current_user.can(team, TeamPermission.AUTO_BECOME_PROJECT_ADMIN):
                 project_data["outputs"] = [

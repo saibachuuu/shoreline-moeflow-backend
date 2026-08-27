@@ -1,7 +1,7 @@
 from typing import Optional
 
 from flask import g
-from flask_apikit.views import APIView
+from app.core.api import APIView
 from app.models.user import User
 
 

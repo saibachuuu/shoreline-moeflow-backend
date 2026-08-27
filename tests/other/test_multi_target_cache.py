@@ -23,7 +23,7 @@ class MultiTargetCacheTestCase(MoeAPITestCase):
         user = User.objects(email="1@1.com").first()
         team = Team.create("t1", creator=user)
         project = Project.create("p1", team=team, creator=user)
-        file1 = project.create_file("1.jpg")
+        project.create_file("1.jpg")
         # == 开始测试 ==
         # Target
         self.assertEqual(1, project.targets().count())
@@ -56,8 +56,8 @@ class MultiTargetCacheTestCase(MoeAPITestCase):
         # == 开始测试 ==
         self.assertEqual(2, Target.objects().count())
         self.assertEqual(0, FileTargetCache.objects().count())
-        file1 = project.create_file("1.txt")
-        file1 = project.create_file("1.jpg")
+        project.create_file("1.txt")
+        project.create_file("1.jpg")
         self.assertEqual(2, Target.objects().count())
         self.assertEqual(2 * 2, FileTargetCache.objects().count())
         # 创建一个已有语言的Target，报错，数量不会增加
@@ -70,15 +70,15 @@ class MultiTargetCacheTestCase(MoeAPITestCase):
         self.assertEqual(3, Target.objects().count())
         self.assertEqual(3 * 2, FileTargetCache.objects().count())
         # 创建已有文件，FileTargetCache不增加
-        file1 = project.create_file("1.jpg")
+        project.create_file("1.jpg")
         self.assertEqual(3, Target.objects().count())
         self.assertEqual(3 * 2, FileTargetCache.objects().count())
         # 创建同名txt文件，因为会建立新修订版，增加
-        file1 = project.create_file("1.txt")
+        project.create_file("1.txt")
         self.assertEqual(3, Target.objects().count())
         self.assertEqual(3 * 3, FileTargetCache.objects().count())
         # 创建新文件，增加
-        file1 = project.create_file("2.txt")
+        project.create_file("2.txt")
         self.assertEqual(3, Target.objects().count())
         self.assertEqual(3 * 4, FileTargetCache.objects().count())
 

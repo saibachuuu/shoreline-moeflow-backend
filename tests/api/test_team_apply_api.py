@@ -163,8 +163,18 @@ class JoinProcessAPITestCase(MoeAPITestCase):
         # 申请变成allow
         application.reload()
         self.assertEqual(ApplicationStatus.ALLOW, application.status)
-        # 用户加入了团队
-        self.assertEqual(user2.get_relation(team1).role, team1.default_role)
+        # 用户加入了团队：
+        # 身份语义下 base_tag 只有 creator/admin/member 三态；未显式指定角色时
+        # 使用团队默认角色（beginner）并归一到 member（join_team 的白名单折叠）。
+        default_code = team1.default_role.system_code
+        expected_code = (
+            default_code
+            if default_code in {"creator", "admin", "member"}
+            else "member"
+        )
+        self.assertEqual(
+            user2.get_relation(team1).role.system_code, expected_code
+        )
         # 成功加入的邀请不能再删除
         data = self.delete(f"/v1/applications/{application.id}", token=token2)
         self.assertErrorEqual(data, ApplicationFinishedError)
@@ -260,16 +270,21 @@ class JoinProcessAPITestCase(MoeAPITestCase):
         # 申请变成allow
         application.reload()
         self.assertEqual(ApplicationStatus.ALLOW, application.status)
-        # 用户加入了团队
-        self.assertEqual(user2.get_relation(team1).role, team1.default_role)
+        # 用户加入了团队（默认角色 beginner 在身份语义下归一到 member）
+        expected_code = (
+            team1.default_role.system_code
+            if team1.default_role.system_code in {"creator", "admin", "member"}
+            else "member"
+        )
+        self.assertEqual(
+            user2.get_relation(team1).role.system_code, expected_code
+        )
 
     def test_user_full(self):
         """测试用户满时不能邀请"""
         self.create_user("11", "1@1.com", "111111").generate_token()
         user1 = User.by_name("11")
         token2 = self.create_user("22", "2@2.com", "111111").generate_token()
-        self.create_user("33", "3@3.com", "111111").generate_token()
-        user3 = User.by_name("33")
         team1 = Team.create("t1")
         # 设置项目加入方式
         team1.max_user = 1
@@ -293,8 +308,9 @@ class JoinProcessAPITestCase(MoeAPITestCase):
             token=token2,
         )
         self.assertErrorEqual(data, TargetIsFullError)
-        # user2 加入，现在两个人，还是不能加入
-        user3.join(team1)
+        # 容量仍然由条件更新保护，重复申请也必须继续失败。
+        team1.reload()
+        self.assertEqual(1, team1.user_count)
         data = self.post(
             f"/v1/teams/{team1.id}/applications",
             json={"message": "hi"},

@@ -19,7 +19,7 @@ LOG_LEVEL = env.get("LOG_LEVEL", "INFO")
 LOG_PATH = env.get("LOG_PATH")
 MAX_CONTENT_LENGTH = int(env.get("MAX_CONTENT_LENGTH_MB", 1024)) * 1024 * 1024
 ADMIN_EMAIL = env["ADMIN_EMAIL"]
-ADMIN_INITIAL_PASSWORD = env.get("ADMIN_INITIAL_PASSWORD", "123123")
+ADMIN_INITIAL_PASSWORD = env.get("ADMIN_INITIAL_PASSWORD", "").strip()
 # TODO reduce code relying on this
 TESTING = env.get("TESTING") == "YES"
 # -----------
@@ -44,10 +44,33 @@ BABEL_DEFAULT_TIMEZONE = "UTC"
 CONFIRM_EMAIL_WAIT_SECONDS = 60  # 重新发送确认邮箱邮件发送等待时间
 RESET_EMAIL_WAIT_SECONDS = 60  # 重置邮箱验证码邮件发送等待时间
 RESET_PASSWORD_WAIT_SECONDS = 60  # 重置密码邮件发送等待时间
-PLAN_FINISH_DELTA = 7 * 24 * 60 * 60  # 计划完结延时时间
-PLAN_DELETE_DELTA = 7 * 24 * 60 * 60  # 计划删除延时时间
 OUTPUT_WAIT_SECONDS = 60 * 5  # 导出等待时间
 BUILD_ID = env.get("MOEFLOW_BUILD_ID", "unset")
+# -----------
+# 画廊归档导入（第三方档案 API NEW_API 契约）
+# -----------
+# 默认的第三方档案 API 地址（团队也可自行覆盖？v1 仅全局配置生效）
+ARCHIVE_PROVIDER_API_URL = env.get("ARCHIVE_PROVIDER_API_URL", "")
+# Team-specific provider URLs must use a host from this allowlist.  The global
+# URL is site-controlled, but is still required to be HTTPS and public at use.
+ARCHIVE_PROVIDER_API_ALLOWED_HOSTS = tuple(
+    host.strip().lower().rstrip(".")
+    for host in env.get("ARCHIVE_PROVIDER_API_ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+)
+# Optional independent Fernet key for encrypted team archive API keys.  When
+# omitted, the key is deterministically derived from SECRET_KEY.
+ARCHIVE_API_KEY_ENCRYPTION_KEY = env.get("ARCHIVE_API_KEY_ENCRYPTION_KEY", "").strip()
+# 归档 zip 解压后总字节上限（防 zip 炸弹）
+ARCHIVE_MAX_ZIP_BYTES = int(env.get("ARCHIVE_MAX_ZIP_BYTES", 500)) * 1024 * 1024
+# 归档 zip 解压后的总字节上限（压缩包大小之外的第二道预算）
+ARCHIVE_MAX_ZIP_UNCOMPRESSED_BYTES = (
+    int(env.get("ARCHIVE_MAX_ZIP_UNCOMPRESSED_MB", 2048)) * 1024 * 1024
+)
+# 归档内图片条目数量上限
+ARCHIVE_MAX_ZIP_ENTRIES = int(env.get("ARCHIVE_MAX_ZIP_ENTRIES", 5000))
+# 单张图片解压大小上限
+ARCHIVE_MAX_ENTRY_BYTES = int(env.get("ARCHIVE_MAX_ENTRY_BYTES", 128)) * 1024 * 1024
 # -----------
 # 默认设置
 # -----------
@@ -144,7 +167,7 @@ CELERY_BACKEND_SETTINGS = {
     }
 }
 # -----------
-# APIKit
+# API response defaults
 # -----------
 APIKIT_PAGINATION_PAGE_KEY = "page"
 APIKIT_PAGINATION_LIMIT_KEY = "limit"

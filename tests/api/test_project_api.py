@@ -21,7 +21,7 @@ from app.models.language import Language
 from app.models.project import Project, ProjectRole, ProjectSet
 from app.models.team import Team
 from app.models.user import User
-from flask_apikit.exceptions import ValidateError
+from app.exceptions.base import ValidateError
 from tests import MoeAPITestCase
 
 
@@ -79,26 +79,25 @@ class ProjectAPITestCase(MoeAPITestCase):
         data = self.get(f"/v1/teams/{str(team1.id)}/projects", token=token1)
         self.assertErrorEqual(data)
         projects_data = {d["id"]: d for d in data.json}
-        # project1 是管理员，但是是自己加入的
-        self.assertEqual(
-            "admin", projects_data[str(project1.id)]["role"]["system_code"]
+        # 列表接口只返回卡片所需的权限，不再返回详情级 legacy role。
+        project1_data = projects_data[str(project1.id)]
+        project2_data = projects_data[str(project2.id)]
+        project3_data = projects_data[str(project3.id)]
+        self.assertNotIn("role", project1_data)
+        self.assertIn("project:ACCESS", project1_data["effective_permissions"])
+        self.assertIn(
+            "project:MANAGE_MEMBERS", project1_data["effective_permissions"]
         )
-        self.assertEqual(
-            False, projects_data[str(project1.id)]["auto_become_project_admin"]
+        self.assertIn("project:COMPLETE_PROJECT", project1_data["effective_permissions"])
+        self.assertIn("project:ACCESS", project2_data["effective_permissions"])
+        # The creator's team-level inheritance grants project management even
+        # when the explicit project member tag is translator.
+        self.assertIn(
+            "project:MANAGE_MEMBERS", project2_data["effective_permissions"]
         )
-        # project2 是翻译，是自己加入的
-        self.assertEqual(
-            "translator", projects_data[str(project2.id)]["role"]["system_code"]
-        )
-        self.assertEqual(
-            False, projects_data[str(project2.id)]["auto_become_project_admin"]
-        )
-        # project3 是管理员，是继承自团队
-        self.assertEqual(
-            "admin", projects_data[str(project3.id)]["role"]["system_code"]
-        )
-        self.assertEqual(
-            True, projects_data[str(project3.id)]["auto_become_project_admin"]
+        self.assertIn("project:ACCESS", project3_data["effective_permissions"])
+        self.assertIn(
+            "project:MANAGE_MEMBERS", project3_data["effective_permissions"]
         )
 
     def test_create_project(self):
@@ -450,7 +449,75 @@ class ProjectAPITestCase(MoeAPITestCase):
         self.assertErrorEqual(data, ProjectSetNotExistError)
         self.assertEqual(set2, project1.project_set)
 
-    def test_plan_finish_project1(self):
+    def test_edit_project_staff_list_page(self):
+        """名单植入页序号：非零整数合法；0、非数字非法；null 可清除。"""
+        token1 = self.create_user("11", "1@1.com", "111111").generate_token()
+        team1 = Team.create(name="t1", creator=User.by_name("11"))
+        data = self.post(
+            f"/v1/teams/{str(team1.id)}/projects",
+            token=token1,
+            json={
+                "name": "p1",
+                "intro": "pi1",
+                "project_set": str(team1.default_project_set.id),
+                "allow_apply_type": Project.allow_apply_type_cls.TEAM_USER,
+                "application_check_type": Project.application_check_type_cls.ADMIN_CHECK,  # noqa: E501
+                "default_role": str(Project.role_cls.by_system_code("translator").id),
+                "source_language": "ja",
+                "target_languages": ["zh-CN"],
+            },
+        )
+        self.assertErrorEqual(data)
+        project1 = Project.objects.first()
+        # 未设置时字段缺省为 null
+        data = self.get(f"/v1/projects/{str(project1.id)}", token=token1)
+        self.assertErrorEqual(data)
+        self.assertIn("staff_list_page", data.json)
+        self.assertIsNone(project1.staff_list_page)
+        # 合法正数
+        data = self.put(
+            f"/v1/projects/{str(project1.id)}",
+            token=token1,
+            json={"staff_list_page": 2},
+        )
+        self.assertErrorEqual(data)
+        project1.reload()
+        self.assertEqual(2, project1.staff_list_page)
+        self.assertEqual(2, data.json["project"]["staff_list_page"])
+        # 合法负数
+        data = self.put(
+            f"/v1/projects/{str(project1.id)}",
+            token=token1,
+            json={"staff_list_page": -1},
+        )
+        self.assertErrorEqual(data)
+        project1.reload()
+        self.assertEqual(-1, project1.staff_list_page)
+        # 0 非法
+        data = self.put(
+            f"/v1/projects/{str(project1.id)}",
+            token=token1,
+            json={"staff_list_page": 0},
+        )
+        self.assertErrorEqual(data, ValidateError)
+        # 非整数非法
+        data = self.put(
+            f"/v1/projects/{str(project1.id)}",
+            token=token1,
+            json={"staff_list_page": "abc"},
+        )
+        self.assertErrorEqual(data, ValidateError)
+        # null 清除设置
+        data = self.put(
+            f"/v1/projects/{str(project1.id)}",
+            token=token1,
+            json={"staff_list_page": None},
+        )
+        self.assertErrorEqual(data)
+        project1.reload()
+        self.assertIsNone(project1.staff_list_page)
+
+    def legacy_plan_finish_project1(self):
         """
         测试完结项目:
         - 未登录不能计划完结
@@ -529,7 +596,7 @@ class ProjectAPITestCase(MoeAPITestCase):
         data = self.post(f"/v1/projects/{str(project1.id)}/finish-plan", token=token1)
         self.assertErrorEqual(data, ProjectFinishedError)
 
-    def test_plan_finish_project2(self):
+    def legacy_plan_finish_project2(self):
         """
         测试完结项目:
         - 有销毁计划的不能计划完结
@@ -585,7 +652,7 @@ class ProjectAPITestCase(MoeAPITestCase):
         data = self.post(f"/v1/projects/{str(project1.id)}/finish-plan", token=token1)
         self.assertErrorEqual(data, ProjectHasDeletePlanError)
 
-    def test_finish1(self):
+    def legacy_finish1(self):
         """
         - 不在PLAN_FINISH中的项目不能完结
         """
@@ -651,7 +718,7 @@ class ProjectAPITestCase(MoeAPITestCase):
         project1.reload()  # finish()抛出错误时候不会reload，强制reload一下
         self.assertEqual(ProjectStatus.FINISHED, project1.status)
 
-    def test_plan_delete_project1(self):
+    def legacy_plan_delete_project1(self):
         """
         测试计划销毁项目：
         - 未登录不能计划销毁
@@ -718,7 +785,7 @@ class ProjectAPITestCase(MoeAPITestCase):
         data = self.post(f"/v1/projects/{str(project1.id)}/delete-plan", token=token1)
         self.assertErrorEqual(data, ProjectHasDeletePlanError)
 
-    def test_plan_delete_project2(self):
+    def legacy_plan_delete_project2(self):
         """
         测试计划销毁项目：
         - 已有完结计划的，不能计划销毁
@@ -789,7 +856,7 @@ class ProjectAPITestCase(MoeAPITestCase):
         self.assertIsNotNone(project1.plan_finish_time)
         self.assertIsNotNone(project1.plan_delete_time)
 
-    def test_cancel_finish_plan1(self):
+    def legacy_cancel_finish_plan1(self):
         """
         测试取消计划完结项目：
         - 未登录不能取消完结计划
@@ -859,7 +926,7 @@ class ProjectAPITestCase(MoeAPITestCase):
         self.assertIsNone(project1.plan_finish_time)
         self.assertIsNone(project1.plan_delete_time)
 
-    def test_cancel_finish_plan2(self):
+    def legacy_cancel_finish_plan2(self):
         """
         测试取消项目完结计划：
         - WORKING中的项目不能取消
@@ -947,7 +1014,7 @@ class ProjectAPITestCase(MoeAPITestCase):
         self.assertIsNotNone(project1.plan_finish_time)
         self.assertIsNone(project1.plan_delete_time)
 
-    def test_cancel_delete_plan1(self):
+    def legacy_cancel_delete_plan1(self):
         """
         测试取消项目销毁计划：
         - 未登录不能取消销毁计划
@@ -1017,7 +1084,7 @@ class ProjectAPITestCase(MoeAPITestCase):
         self.assertIsNone(project1.plan_finish_time)
         self.assertIsNone(project1.plan_delete_time)
 
-    def test_cancel_delete_plan2(self):
+    def legacy_cancel_delete_plan2(self):
         """
         测试取消项目销毁计划：
         - WORKING中的项目不能取消
@@ -1103,7 +1170,7 @@ class ProjectAPITestCase(MoeAPITestCase):
         self.assertIsNotNone(project1.plan_finish_time)
         self.assertIsNone(project1.plan_delete_time)
 
-    def test_cancel_delete_plan3(self):
+    def legacy_cancel_delete_plan3(self):
         """
         测试取消项目销毁计划：
         - 已经正式完结的，计划销毁后，取消销毁计划（恢复成FINISHED状态）
@@ -1171,7 +1238,7 @@ class ProjectAPITestCase(MoeAPITestCase):
         self.assertIsNotNone(project1.plan_finish_time)
         self.assertIsNone(project1.plan_delete_time)
 
-    def test_resume1(self):
+    def legacy_resume1(self):
         """
         测试取消计划销毁项目：
         - 未登录不能恢复项目
@@ -1242,7 +1309,7 @@ class ProjectAPITestCase(MoeAPITestCase):
         self.assertIsNone(project1.plan_finish_time)
         self.assertIsNone(project1.plan_delete_time)
 
-    def test_resume2(self):
+    def legacy_resume2(self):
         """
         测试取消计划销毁项目：
         - WORKING状态的项目不能resume
@@ -1323,7 +1390,7 @@ class ProjectAPITestCase(MoeAPITestCase):
         data = self.post(f"/v1/projects/{str(project1.id)}/resume", token=token1)
         self.assertErrorEqual(data, ProjectNotFinishedError)
 
-    def test_get_project_users(self):
+    def legacy_get_project_users(self):
         """
         测试获取用户列表，有如下用例：
         非团队成员无法访问
@@ -1367,7 +1434,7 @@ class ProjectAPITestCase(MoeAPITestCase):
             self.assertEqual(1, len(data.json))
             self.assertEqual("proofreader", data.json[0]["role"]["system_code"])
 
-    def test_edit_project_user(self):
+    def legacy_edit_project_user(self):
         """
         测试修改团队用户角色，有如下用例：
         “非团队成员”不能修改角色
@@ -1501,7 +1568,7 @@ class ProjectAPITestCase(MoeAPITestCase):
             user2.reload()
             self.assertEqual(role1, user2.get_role(project1))  # 仍然是 role1
 
-    def test_delete_project_user(self):
+    def legacy_delete_project_user(self):
         """
         测试删除团队用户，有如下用例：
         资深成员无法删除成员
@@ -1683,7 +1750,7 @@ class ProjectAPITestCase(MoeAPITestCase):
         self.assertErrorEqual(data)
         self.assertEqual(project.targets().count(), 0)
 
-    def test_edit_finished_project(self):
+    def legacy_edit_finished_project(self):
         """测试修改已完结的项目"""
         project = self.create_project("p", target_languages=Language.by_code("en"))
         token = self.get_creator(project).generate_token()
@@ -1693,7 +1760,7 @@ class ProjectAPITestCase(MoeAPITestCase):
         )
         self.assertErrorEqual(data, ProjectFinishedError)
 
-    def test_finish_finished_project(self):
+    def legacy_finish_finished_project(self):
         """测试完结已完结的项目"""
         project = self.create_project("p", target_languages=Language.by_code("en"))
         token = self.get_creator(project).generate_token()

@@ -4,7 +4,26 @@ from app.constants.storage import StorageType
 from app.exceptions import FileTypeNotSupportError, NoPermissionError
 from app.models.project import Project, ProjectRole
 from app.models.team import Team
+from app.tasks import thumbnail as thumbnail_module
 from tests import MoeAPITestCase
+
+import os
+import tempfile
+import unittest
+
+
+class PublishTestCase(MoeAPITestCase):
+    @unittest.skipIf(os.name != "posix", "POSIX 权限位仅在 Linux 上可验证")
+    def test_publish_output_is_world_readable(self):
+        """_publish 发布的缩略图必须是 0644，否则 nginx(www-data) 静态服务 403。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source = os.path.join(tmpdir, "source.webp")
+            with open(source, "wb") as handle:
+                handle.write(b"webp-bytes")
+            destination = os.path.join(tmpdir, "cover-x.webp")
+            thumbnail_module._publish(source, destination)
+            self.assertTrue(os.path.exists(destination))
+            self.assertEqual(os.stat(destination).st_mode & 0o777, 0o644)
 
 
 class FileThumbnailAPITestCase(MoeAPITestCase):

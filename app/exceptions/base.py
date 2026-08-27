@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-基础错误1-99为flask-apikit预留的错误code
+基础错误码1-99由应用API层保留
 """
 
-from flask_apikit.exceptions import APIError
+# Re-export the base API errors for existing exception imports.
+from app.core.api import APIError, QueryParseError, ValidateError  # noqa: F401
 from flask_babel import lazy_gettext
 
 """

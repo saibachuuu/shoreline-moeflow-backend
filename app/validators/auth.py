@@ -38,7 +38,7 @@ class RegisterSchema(DefaultSchema):
     )
 
     @validates_schema
-    def verify_v_code(self, data):
+    def verify_v_code(self, data, **kwargs):
         v_code_validator(VCodeType.CONFIRM_EMAIL, data["email"].lower(), data["v_code"])
 
 
@@ -59,7 +59,7 @@ class LoginSchema(DefaultSchema):
     captcha = fields.Str(required=True, error_messages={**required_message})
 
     @validates_schema
-    def verify_captcha_and_password(self, data):
+    def verify_captcha_and_password(self, data, **kwargs):
         captcha_validator(data["captcha_info"], data["captcha"])
         # 验证人机验证码后，再验证密码（如果出错不返回密码验证状态）
         password_validator(data["email"], data["password"])
@@ -79,9 +79,12 @@ class ChangeInfoSchema(DefaultSchema):
         validate=[need_in(Locale.ids())],
         error_messages={**required_message},
     )
+    # Optional for existing API clients; the profile form sends it together
+    # with the other fields so the whole profile can be saved in one request.
+    aliases = fields.List(fields.Str(), required=False)
 
     @validates_schema
-    def verify_name(self, data):
+    def verify_name(self, data, **kwargs):
         # 如果新名字和旧名字不同,检查新名称是否合法
         if data["name"] != self.context["old_name"]:
             UserValidate.valid_new_name(data["name"], field_name="name")
@@ -99,7 +102,7 @@ class ChangeEmailSchema(DefaultSchema):
     new_email_v_code = fields.Str(required=True, error_messages={**required_message})
 
     @validates_schema
-    def verify_old_email_v_code(self, data):
+    def verify_old_email_v_code(self, data, **kwargs):
         v_code_validator(
             VCodeType.RESET_EMAIL,
             self.context["old_email"].lower(),
@@ -109,7 +112,7 @@ class ChangeEmailSchema(DefaultSchema):
         )
 
     @validates_schema
-    def verify_new_email_v_code(self, data):
+    def verify_new_email_v_code(self, data, **kwargs):
         v_code_validator(
             VCodeType.CONFIRM_EMAIL,
             data["new_email"].lower(),
@@ -134,7 +137,7 @@ class ChangePasswordSchema(DefaultSchema):
     )
 
     @validates_schema
-    def verify_password(self, data):
+    def verify_password(self, data, **kwargs):
         password_validator(self.context["email"], data["old_password"], "old_password")
 
 
@@ -154,7 +157,7 @@ class ResetPasswordSchema(DefaultSchema):
     )
 
     @validates_schema
-    def verify_v_code(self, data):
+    def verify_v_code(self, data, **kwargs):
         v_code_validator(
             VCodeType.RESET_PASSWORD, data["email"].lower(), data["v_code"]
         )

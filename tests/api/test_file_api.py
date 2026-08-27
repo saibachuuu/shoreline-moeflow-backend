@@ -18,7 +18,8 @@ from app.models.file import FileTargetCache
 from app.models.project import Project
 from app.models.team import Team
 from app.models.user import User
-from flask_apikit.exceptions import ValidateError
+from app.services.project_lifecycle import ProjectLifecycleService
+from app.exceptions.base import ValidateError
 from tests import TEST_FILE_PATH, MoeAPITestCase
 
 
@@ -513,11 +514,11 @@ class FileAPITestCase(MoeAPITestCase):
             {"id": None, "translated_source_count": 0, "checked_source_count": 0},
         )
 
-    def test_upload_file_to_finished_project(self):
-        """测试向已完结的项目上传文件"""
+    def test_upload_file_to_completed_project(self):
+        """完结项目保留内容，但不能再上传文件。"""
         project = self.create_project("p", target_languages=Language.by_code("en"))
         token = self.get_creator(project).generate_token()
-        project.finish()
+        ProjectLifecycleService.complete(project, self.get_creator(project), {})
         with open(os.path.join(TEST_FILE_PATH, "term.txt"), "rb") as file:
             data = self.post(
                 f"/v1/projects/{str(project.id)}/files",
@@ -527,11 +528,11 @@ class FileAPITestCase(MoeAPITestCase):
             )
             self.assertErrorEqual(data, ProjectFinishedError)
 
-    def test_get_files_to_finished_project(self):
-        """测试向已完结的项目上传文件"""
+    def test_get_files_to_completed_project(self):
+        """完结项目不能通过可编辑文件列表接口操作内容。"""
         project = self.create_project("p", target_languages=Language.by_code("en"))
         token = self.get_creator(project).generate_token()
-        project.finish()
+        ProjectLifecycleService.complete(project, self.get_creator(project), {})
         data = self.get(f"/v1/projects/{str(project.id)}/files", token=token)
         self.assertErrorEqual(data, ProjectFinishedError)
 

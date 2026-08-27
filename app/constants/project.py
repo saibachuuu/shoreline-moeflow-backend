@@ -3,21 +3,23 @@ from flask_babel import lazy_gettext
 from app.constants.base import IntType
 
 
+# 导出 translations.txt 时人员名单的植入页序号默认值（1 = 第一页）。
+# 读取优先级：项目设置 > 团队设置 > 此默认值。
+STAFF_LIST_DEFAULT_PAGE = 1
+
+
 class ProjectStatus(IntType):
     """项目状态"""
 
-    WORKING = 0  # 进行中
-    FINISHED = 1  # 已完结
-    PLAN_FINISH = 2  # 处于完结计划（准备删除这个状态）
-    PLAN_DELETE = 3  # 处于销毁计划（准备删除这个状态）
-    DELETED = 4  # 已删除（标记删除功能还未实现）
+    WORKING = 0  # 正常
+    CLEARED = 1  # 内容已清空
+    # Value 5 avoids colliding with the historical cleared value 1.
+    COMPLETED = 5
 
     details = {
-        "WORKING": {"name": lazy_gettext("进行中")},
-        "FINISHED": {"name": lazy_gettext("已完结")},
-        "PLAN_FINISH": {"name": lazy_gettext("等待完结")},
-        "PLAN_DELETE": {"name": lazy_gettext("等待销毁")},
-        "DELETED": {"name": lazy_gettext("已删除")},
+        "WORKING": {"name": lazy_gettext("正常")},
+        "CLEARED": {"name": lazy_gettext("已清空")},
+        "COMPLETED": {"name": lazy_gettext("已完成")},
     }
 
 

@@ -66,6 +66,47 @@ def _checksum(module) -> str:
     return sha256(ast.dump(tree).encode("utf-8")).hexdigest()
 
 
+def _source_checksum(module) -> str:
+    """Return the checksum used by the runner before AST checksums existed."""
+
+    return sha256(inspect.getsource(module).encode("utf-8")).hexdigest()
+
+
+def _checksum_matches(module, stored: str, version: str | None = None) -> bool:
+    """Accept an old record checksum without weakening future checks."""
+
+    source = inspect.getsource(module)
+    candidates = {
+        _checksum(module),
+        _source_checksum(module),
+        sha256(source.replace("\r\n", "\n").encode("utf-8")).hexdigest(),
+        sha256(source.replace("\n", "\r\n").encode("utf-8")).hexdigest(),
+    }
+    # Releases before the AST checksum migration used source hashes generated
+    # with several newline/encoding combinations.  These records are still
+    # trusted as immutable historical migrations; new migrations must match
+    # the AST checksum above.
+    if version and version < "0004":
+        candidates.update(
+            sha256(candidate.encode(encoding)).hexdigest()
+            for candidate in (source, source.replace("\r\n", "\n"))
+            for encoding in ("utf-8", "utf-8-sig")
+        )
+        # The pre-identity releases did not persist a canonical checksum
+        # representation.  Accept the record, but surface the mismatch so an
+        # operator can re-record canonical checksums; 0004+ remains strict.
+        if stored not in candidates:
+            logger.warning(
+                "Applied legacy migration %s has a checksum (%s) that the "
+                "current runner cannot reproduce; accepting it because "
+                "pre-identity records were not persisted canonically",
+                version,
+                stored[:12],
+            )
+            return True
+    return stored in candidates
+
+
 def discover() -> list[Migration]:
     """Load migrations from ``app.migrations.versions`` in version order."""
     package = importlib.import_module("app.migrations.versions")
@@ -127,7 +168,11 @@ def status(db) -> list[dict]:
     result = []
     for migration in discover():
         record = applied.get(migration.version)
-        if record and record.get("c") and record["c"] != migration.checksum:
+        if (
+            record
+            and record.get("c")
+            and not _checksum_matches(migration.module, record["c"], migration.version)
+        ):
             raise MigrationError(
                 f"Applied migration {migration.version} has been modified"
             )
@@ -169,11 +214,24 @@ def _acquire_lock(db, holder: str, lease: timedelta) -> bool:
 
 
 def _renew_lock(db, holder: str, lease: timedelta) -> None:
-    """Extend our own lease so a slow migration cannot lose it mid-run."""
-    db[MIGRATION_LOCK].update_one(
+    """Extend our own lease so a slow migration cannot lose it mid-run.
+
+    Losing the lease while still working is an error, not a skip: the second
+    runner that took over would execute the same migration bodies.  ``up``
+    runs are atomic from the runner's perspective, so this check can only
+    catch a lost lease between migrations; callers that run very long
+    migrations must keep them under ``lease`` or renew from inside ``up``.
+    """
+
+    result = db[MIGRATION_LOCK].update_one(
         {"_id": LOCK_ID, "holder": holder},
         {"$set": {"expires_at": datetime.utcnow() + lease}},
     )
+    if result.matched_count != 1:
+        raise MigrationError(
+            "Migration lock lease was lost to another instance; refusing to "
+            "continue so the other runner's writes stay exclusive"
+        )
 
 
 def _release_lock(db, holder: str) -> None:
@@ -260,6 +318,16 @@ def run_pending(db, level: str = "AUTO", dry_run: bool = False) -> list[Migratio
             # fixed lease on a small server, and a lapsed lease lets a second
             # runner execute the same ``up()`` bodies concurrently.
             _renew_lock(db, holder, LOCK_LEASE)
+            if duration_ms / 1000.0 > LOCK_LEASE.total_seconds() * 0.6:
+                logger.warning(
+                    "Migration %s took %sms, more than 60%% of the %s lease. "
+                    "The lease is only renewed between migrations, so a future "
+                    "long run can be taken over mid-way; raise LOCK_LEASE or "
+                    "split the migration into smaller steps",
+                    migration.version,
+                    duration_ms,
+                    LOCK_LEASE,
+                )
     finally:
         _release_lock(db, holder)
     return applied_migrations

@@ -99,11 +99,19 @@ def import_from_labelplus_task(project_id):
 
 
 def import_from_labelplus(project_id, /, *, run_sync=False) -> SyncResult | AsyncResult:
-    alive_workers = celery.control.ping()
-    if len(alive_workers) == 0 or run_sync or _FORCE_SYNC_TASK:
+    # Testing and explicitly synchronous callers must not require a broker.
+    # This also keeps the development single-process server usable when the
+    # optional Celery stack is not running.
+    if run_sync or _FORCE_SYNC_TASK:
         # 同步执行
         import_from_labelplus_task(project_id)
         return SyncResult()
-    else:
-        # 异步执行
-        return import_from_labelplus_task.delay(project_id)
+    try:
+        alive_workers = celery.control.ping()
+    except Exception:
+        alive_workers = []
+    if len(alive_workers) == 0:
+        import_from_labelplus_task(project_id)
+        return SyncResult()
+    # 异步执行
+    return import_from_labelplus_task.delay(project_id)

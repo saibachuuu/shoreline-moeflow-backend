@@ -9,8 +9,10 @@ from PIL import Image, ImageOps
 
 from app import STORAGE_PATH, celery
 from app.constants.storage import StorageType
-from app.exceptions.file import FileNotExistError
+from app.exceptions.file import FileNotExistError, SourceFileNotExist
 from app import oss
+from oss2.exceptions import NoSuchKey
+from celery.exceptions import MaxRetriesExceededError
 
 from app.models import connect_db
 from . import SyncResult, _FORCE_SYNC_TASK
@@ -66,6 +68,9 @@ def _publish(temp_path, destination):
     os.close(staging_fd)
     try:
         shutil.copyfile(temp_path, staging_path)
+        # mkstemp 创建的文件是 0600，nginx (www-data) 无法读取，
+        # 静态 /storage 服务会 403。发布前显式改为 0644。
+        os.chmod(staging_path, 0o644)
         os.replace(staging_path, destination)
     except BaseException:
         try:
@@ -80,8 +85,19 @@ def _publish(temp_path, destination):
             pass
 
 
-@celery.task(name="tasks.create_thumbnail_task")
-def create_thumbnail_task(image_id: str, image_path=None):
+@celery.task(
+    name="tasks.create_thumbnail_task",
+    bind=True,
+    # Ack only after the run finishes so a killed worker (OOM, redeploy)
+    # redelivers instead of stranding the document at GENERATING forever.
+    acks_late=True,
+    # Transient failures (broker/OSS hiccups) retry; the document stays at
+    # GENERATING between attempts and cover_url falls back to the storage
+    # probe, so a retry never hides an already-good thumbnail.
+    max_retries=3,
+    default_retry_delay=30,
+)
+def create_thumbnail_task(self, image_id: str, image_path=None):
     """
     生成图片缩略图（缩略封面和采样图）
 
@@ -122,6 +138,7 @@ def create_thumbnail_task(image_id: str, image_path=None):
     persist_ms = 0
     image = None
     fenced_save_name = None
+    downloaded_tmp = None
     try:
         image = File.by_id(image_id)
         from app.constants.file import ThumbnailStatus
@@ -137,10 +154,14 @@ def create_thumbnail_task(image_id: str, image_path=None):
         if image_path is None:
             if is_r2:
                 tmp = tempfile.NamedTemporaryFile(delete=False)
+                downloaded_tmp = tmp.name
                 try:
                     image.download_real_file(local_path=tmp.name)
-                except FileNotExistError:
-                    os.unlink(tmp.name)
+                except (FileNotExistError, SourceFileNotExist, NoSuchKey):
+                    # R2 (and any S3-compatible) storage reports a missing
+                    # source as NoSuchKey; SourceFileNotExist covers an empty
+                    # save_name.  Both mean "source image is gone", not a
+                    # transient error, so this is terminal, not retryable.
                     _set_thumbnail_state(
                         image,
                         ThumbnailStatus.FAILED,
@@ -227,7 +248,7 @@ def create_thumbnail_task(image_id: str, image_path=None):
             persist_ms,
             round((time.monotonic() - started_at) * 1000),
         )
-    except FileNotExistError:
+    except (FileNotExistError, SourceFileNotExist, NoSuchKey):
         if image is not None:
             _set_thumbnail_state(
                 image,
@@ -237,19 +258,26 @@ def create_thumbnail_task(image_id: str, image_path=None):
             )
         return f"失败：创建缩略图失败，原图不存在 {image_id}"
     except Exception as error:
-        if image is not None:
-            _set_thumbnail_state(
-                image,
-                ThumbnailStatus.FAILED,
-                str(error),
-                save_name=fenced_save_name,
-            )
-        logger.exception("Failed to create thumbnails for %s", image_id)
-        return f"失败：创建缩略图失败 {image_id}"
+        # Transient failures retry with backoff; the state stays GENERATING
+        # (cover_url's storage probe keeps working) until retries are spent.
+        # Nothing is marked FAILED on the first attempt: a late second task
+        # must never overwrite a SUCCEEDED run of the same save_name.
+        try:
+            raise self.retry(exc=error, countdown=30)
+        except MaxRetriesExceededError:
+            if image is not None:
+                _set_thumbnail_state(
+                    image,
+                    ThumbnailStatus.FAILED,
+                    str(error)[:500],
+                    save_name=fenced_save_name,
+                )
+            logger.exception("Failed to create thumbnails for %s", image_id)
+            return f"失败：创建缩略图失败 {image_id}"
     finally:
-        if is_r2 and image_path and image_path.startswith(tempfile.gettempdir()):
+        if downloaded_tmp is not None:
             try:
-                os.unlink(image_path)
+                os.unlink(downloaded_tmp)
             except OSError:
                 pass
     return f"成功：创建缩略图成功 {image_id}"

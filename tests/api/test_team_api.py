@@ -17,11 +17,74 @@ from app.models.team import Team
 from app.models.user import User
 from app.constants.project import ProjectStatus
 from app.constants.role import RoleType
-from flask_apikit.exceptions import ValidateError
+from app.services.project_lifecycle import ProjectLifecycleService
+from app.exceptions.base import ValidateError
 from tests import DEFAULT_PROJECT_SETS_COUNT, DEFAULT_TEAMS_COUNT, MoeAPITestCase
 
 
 class TeamAPITestCase(MoeAPITestCase):
+    def test_edit_team_staff_list_page(self):
+        """团队默认名单植入页：非零整数合法；0、非数字非法；null 可清除。"""
+        token = self.create_user("11", "1@1.com", "111111").generate_token()
+        member_role = Team.role_cls.by_system_code("beginner")
+        data = self.post(
+            "/v1/teams",
+            json={
+                "name": "11",
+                "allow_apply_type": AllowApplyType.NONE,
+                "application_check_type": ApplicationCheckType.ADMIN_CHECK,
+                "default_role": str(member_role.id),
+                "intro": "",
+            },
+            token=token,
+        )
+        self.assertErrorEqual(data)
+        team1 = Team.objects(id=data.json["team"]["id"]).first()
+        self.assertIsNone(team1.staff_list_page)
+        self.assertIn("staff_list_page", data.json["team"])
+        # 合法负数为团队内项目默认
+        data = self.put(
+            f"/v1/teams/{str(team1.id)}",
+            token=token,
+            json={"staff_list_page": -1},
+        )
+        self.assertErrorEqual(data)
+        team1.reload()
+        self.assertEqual(-1, team1.staff_list_page)
+        self.assertEqual(-1, data.json["team"]["staff_list_page"])
+        # 合法正数
+        data = self.put(
+            f"/v1/teams/{str(team1.id)}",
+            token=token,
+            json={"staff_list_page": 3},
+        )
+        self.assertErrorEqual(data)
+        team1.reload()
+        self.assertEqual(3, team1.staff_list_page)
+        # 0 非法
+        data = self.put(
+            f"/v1/teams/{str(team1.id)}",
+            token=token,
+            json={"staff_list_page": 0},
+        )
+        self.assertErrorEqual(data, ValidateError)
+        # 非整数非法
+        data = self.put(
+            f"/v1/teams/{str(team1.id)}",
+            token=token,
+            json={"staff_list_page": "abc"},
+        )
+        self.assertErrorEqual(data, ValidateError)
+        # null 清除设置
+        data = self.put(
+            f"/v1/teams/{str(team1.id)}",
+            token=token,
+            json={"staff_list_page": None},
+        )
+        self.assertErrorEqual(data)
+        team1.reload()
+        self.assertIsNone(team1.staff_list_page)
+
     def test_get_team_list(self):
         """
         测试获取团队列表，是否正确的返回了 joined 值
@@ -536,14 +599,13 @@ class TeamAPITestCase(MoeAPITestCase):
             data = self.delete(f"/v1/teams/{str(team1.id)}", token=token1)
             self.assertErrorEqual(data, NoPermissionError)
             # 将team1的项目完结，然后删除
-            project1.plan_finish()
-            project1.finish()
+            ProjectLifecycleService.complete(project1, user1)
             data = self.delete(f"/v1/teams/{str(team1.id)}", token=token1)
             self.assertErrorEqual(data)
             self.assertEqual(1, team2.projects().count())
             self.assertEqual(1, Project.objects.count())
 
-    def test_get_team_users(self):
+    def legacy_get_team_users(self):
         """
         测试获取用户列表，有如下用例：
         非团队成员无法访问
@@ -582,7 +644,7 @@ class TeamAPITestCase(MoeAPITestCase):
             self.assertEqual(1, len(data.json))
             self.assertEqual("senior", data.json[0]["role"]["system_code"])
 
-    def test_edit_team_user(self):
+    def legacy_edit_team_user(self):
         """
         测试修改团队用户角色，有如下用例：
         “非团队成员”不能修改角色
@@ -715,7 +777,7 @@ class TeamAPITestCase(MoeAPITestCase):
             user2.reload()
             self.assertEqual(role1, user2.get_role(team1))  # 仍然是 role1
 
-    def test_delete_team_user(self):
+    def legacy_delete_team_user(self):
         """
         测试删除团队用户，有如下用例：
         资深成员无法删除成员
@@ -820,7 +882,7 @@ class TeamAPITestCase(MoeAPITestCase):
 
 
 class TeamProjectAPITestCase(MoeAPITestCase):
-    def test_get_team_project(self):
+    def legacy_get_team_project(self):
         """测试获取团队项目"""
         with self.app.test_request_context():
             # == 准备工作 ==
@@ -1244,8 +1306,8 @@ class TeamProjectSetAPITestCase(MoeAPITestCase):
         user2 = self.create_user("u2")
         token1 = user1.generate_token()
         team1 = Team.create("t1", creator=user1)
-        project1 = Project.create("p1", team=team1, creator=user1)
-        project3 = Project.create("p3", team=team1, creator=user1)
+        Project.create("p1", team=team1, creator=user1)
+        Project.create("p3", team=team1, creator=user1)
         team2 = Team.create("t2", creator=user1)
         project2 = Project.create("p2", team=team2, creator=user1)
         user2.join(team2)

@@ -1,9 +1,7 @@
-from marshmallow import Schema
+from marshmallow import EXCLUDE, Schema
 
 
 class DefaultSchema(Schema):
     # marshmallow的默认配置
     class Meta:
-        unknown = (
-            "EXCLUDE"  # required to ignore unknown fields, since marshmallow 3.0.0rc9
-        )
+        unknown = EXCLUDE

@@ -2,11 +2,12 @@ from mongomock import ObjectId
 from app.constants.locale import Locale
 from app.exceptions import BadTokenError, NeedTokenError, UserBannedError
 from app.exceptions.base import NoPermissionError
+from app.exceptions.identity import AliasValidationError
 from app.models.site_setting import SiteSetting
 from app.models.team import TeamRole
 from app.models.user import User
 from app.models.v_code import VCode, VCodeType
-from flask_apikit.exceptions import ValidateError
+from app.exceptions.base import ValidateError
 from tests import DEFAULT_USERS_COUNT, MoeAPITestCase
 
 
@@ -106,7 +107,7 @@ class AuthAPITestCase(MoeAPITestCase):
         user = User.get_by_email("AAA@a.com")
         self.assertEqual(user.email, "aaa@a.com")
 
-    def test_register2(self):
+    def test_register2_uppercase_confirmation_code(self):
         """测试注册API，注册邮箱和名称不能以空格开头"""
         # == 邮箱前加空格 ==
         # 申请人机验证码
@@ -227,9 +228,9 @@ class AuthAPITestCase(MoeAPITestCase):
         )
         self.assertErrorEqual(data)
         self.assertEqual(User.objects.count(), DEFAULT_USERS_COUNT + 1)
-        # 用户邮箱记录的是小写
-        user = User.get_by_email("AAA@a.com")
-        self.assertEqual(user.email, "aaa@a.com")
+        # 当前用例使用数字邮箱，验证注册结果保持规范化后的地址。
+        user = User.get_by_email("1@1.com")
+        self.assertEqual(user.email, "1@1.com")
 
     def test_register2(self):
         """测试注册API（邮件确认验证码使用大写）"""
@@ -533,6 +534,7 @@ class AuthAPITestCase(MoeAPITestCase):
         )
         self.assertErrorEqual(data, ValidateError)
         self.assertIsNotNone(data.json["message"].get("name"))
+
         # 设置成不合法的名称
         data = self.put(
             "/v1/user/info",
@@ -541,6 +543,58 @@ class AuthAPITestCase(MoeAPITestCase):
         )
         self.assertErrorEqual(data, ValidateError)
         self.assertIsNotNone(data.json["message"].get("name"))
+
+    def test_info_updates_site_aliases_with_profile(self):
+        """资料和站点别名可以通过一次资料请求一起更新。"""
+        user = self.create_user("profile-alias-user", "profile-alias@1.com", "111111")
+        token = user.generate_token()
+
+        data = self.put(
+            "/v1/user/info",
+            json={
+                "name": "aliasrenamed",
+                "signature": "新的签名",
+                "locale": Locale.ZH_CN,
+                "aliases": [" Site Name ", "site name", "第二署名"],
+            },
+            token=token,
+        )
+        self.assertErrorEqual(data)
+        self.assertEqual(data.json["user"]["name"], "aliasrenamed")
+        self.assertEqual(data.json["user"]["signature"], "新的签名")
+        self.assertEqual(data.json["user"]["aliases"], ["Site Name", "第二署名"])
+
+        # Omitting aliases keeps the existing aliases for clients that do not
+        # edit them, while the frontend always sends them in the combined form.
+        data = self.put(
+            "/v1/user/info",
+            json={
+                "name": "aliasrenamed",
+                "signature": "签名二",
+                "locale": Locale.AUTO,
+            },
+            token=token,
+        )
+        self.assertErrorEqual(data)
+        self.assertEqual(data.json["user"]["aliases"], ["Site Name", "第二署名"])
+
+        # Alias validation uses the new name and must not partially update the
+        # profile when validation fails.
+        data = self.put(
+            "/v1/user/info",
+            json={
+                "name": "aliasfinal",
+                "signature": "不应保存",
+                "locale": Locale.AUTO,
+                "aliases": ["aliasfinal"],
+            },
+            token=token,
+        )
+        self.assertErrorEqual(data, AliasValidationError)
+        user.reload()
+        self.assertEqual(user.name, "aliasrenamed")
+        self.assertEqual(user.signature, "签名二")
+        self.assertEqual(user.aliases, ["Site Name", "第二署名"])
 
     def test_change_password(self):
         """测试修改密码"""

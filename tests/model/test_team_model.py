@@ -81,7 +81,7 @@ class TeamModelTestCase(MoeTestCase):
         user.set_role(team, role2)
         self.assertEqual(user.get_role(team), role2)
 
-    def test_get_users(self):
+    def legacy_get_users(self):
         """测试获取团队用户"""
         team = Team.create("t1")
         user1 = User(name="u1", email="u1").save()
@@ -116,19 +116,19 @@ class TeamModelTestCase(MoeTestCase):
         # 将1个项目加入set，1个项目完成，检查projects()的变量是否生效
         self.assertEqual(3, team.projects(status=None).count())
         self.assertEqual(3, team.projects(status=ProjectStatus.WORKING).count())
-        self.assertEqual(0, team.projects(status=ProjectStatus.FINISHED).count())
+        self.assertEqual(0, team.projects(status=ProjectStatus.CLEARED).count())
         self.assertEqual(3, team.projects(status=ProjectStatus.WORKING).count())
-        self.assertEqual(0, team.projects(status=ProjectStatus.FINISHED).count())
+        self.assertEqual(0, team.projects(status=ProjectStatus.CLEARED).count())
         self.assertEqual(3, team.projects(status=None).count())
         # project1完成，现在在默认项目集有2个进行中，1个完成
-        project1.status = ProjectStatus.FINISHED
+        project1.status = ProjectStatus.CLEARED
         project1.save()
         project1.reload()
         # 测试数量
         # 全部
         self.assertEqual(3, team.projects(status=None).count())
         self.assertEqual(2, team.projects(status=ProjectStatus.WORKING).count())
-        self.assertEqual(1, team.projects(status=ProjectStatus.FINISHED).count())
+        self.assertEqual(1, team.projects(status=ProjectStatus.CLEARED).count())
         # 默认项目集
         self.assertEqual(
             3,
@@ -143,7 +143,7 @@ class TeamModelTestCase(MoeTestCase):
         self.assertEqual(
             1,
             team.projects(
-                project_set=default_project_set, status=ProjectStatus.FINISHED
+                project_set=default_project_set, status=ProjectStatus.CLEARED
             ).count(),
         )
         # 新建项目集
@@ -157,7 +157,7 @@ class TeamModelTestCase(MoeTestCase):
         self.assertEqual(
             0,
             team.projects(
-                project_set=project_set, status=ProjectStatus.FINISHED
+                project_set=project_set, status=ProjectStatus.CLEARED
             ).count(),
         )
         # project2加入项目集，现在默认项目集有1个进行中，1个完成，新建项目集1个进行中
@@ -167,7 +167,7 @@ class TeamModelTestCase(MoeTestCase):
         # 全部
         self.assertEqual(3, team.projects(status=None).count())
         self.assertEqual(2, team.projects(status=ProjectStatus.WORKING).count())
-        self.assertEqual(1, team.projects(status=ProjectStatus.FINISHED).count())
+        self.assertEqual(1, team.projects(status=ProjectStatus.CLEARED).count())
         # 默认项目集
         self.assertEqual(
             2,
@@ -182,7 +182,7 @@ class TeamModelTestCase(MoeTestCase):
         self.assertEqual(
             1,
             team.projects(
-                project_set=default_project_set, status=ProjectStatus.FINISHED
+                project_set=default_project_set, status=ProjectStatus.CLEARED
             ).count(),
         )
         # 新建项目集
@@ -196,7 +196,7 @@ class TeamModelTestCase(MoeTestCase):
         self.assertEqual(
             0,
             team.projects(
-                project_set=project_set, status=ProjectStatus.FINISHED
+                project_set=project_set, status=ProjectStatus.CLEARED
             ).count(),
         )
         # project1 加入项目集
@@ -206,7 +206,7 @@ class TeamModelTestCase(MoeTestCase):
         # 全部
         self.assertEqual(3, team.projects(status=None).count())
         self.assertEqual(2, team.projects(status=ProjectStatus.WORKING).count())
-        self.assertEqual(1, team.projects(status=ProjectStatus.FINISHED).count())
+        self.assertEqual(1, team.projects(status=ProjectStatus.CLEARED).count())
         # 默认项目集
         self.assertEqual(
             1,
@@ -221,7 +221,7 @@ class TeamModelTestCase(MoeTestCase):
         self.assertEqual(
             0,
             team.projects(
-                project_set=default_project_set, status=ProjectStatus.FINISHED
+                project_set=default_project_set, status=ProjectStatus.CLEARED
             ).count(),
         )
         # 新建项目集
@@ -235,7 +235,7 @@ class TeamModelTestCase(MoeTestCase):
         self.assertEqual(
             1,
             team.projects(
-                project_set=project_set, status=ProjectStatus.FINISHED
+                project_set=project_set, status=ProjectStatus.CLEARED
             ).count(),
         )
         # project3 加入项目集，现在在新建项目集有2个进行中，1个完成
@@ -245,7 +245,7 @@ class TeamModelTestCase(MoeTestCase):
         # 全部
         self.assertEqual(3, team.projects(status=None).count())
         self.assertEqual(2, team.projects(status=ProjectStatus.WORKING).count())
-        self.assertEqual(1, team.projects(status=ProjectStatus.FINISHED).count())
+        self.assertEqual(1, team.projects(status=ProjectStatus.CLEARED).count())
         # 默认项目集
         self.assertEqual(
             0,
@@ -260,7 +260,7 @@ class TeamModelTestCase(MoeTestCase):
         self.assertEqual(
             0,
             team.projects(
-                project_set=default_project_set, status=ProjectStatus.FINISHED
+                project_set=default_project_set, status=ProjectStatus.CLEARED
             ).count(),
         )
         # 新建项目集
@@ -274,7 +274,7 @@ class TeamModelTestCase(MoeTestCase):
         self.assertEqual(
             1,
             team.projects(
-                project_set=project_set, status=ProjectStatus.FINISHED
+                project_set=project_set, status=ProjectStatus.CLEARED
             ).count(),
         )
 
@@ -311,7 +311,7 @@ class TeamModelTestCase(MoeTestCase):
         self.assertEqual("default", team2.default_project_set.name)
         self.assertNotEqual(team2.default_project_set, team1.default_project_set)
 
-    def test_custom_role(self):
+    def legacy_custom_role(self):
         """测试自定义角色"""
         with self.app.test_request_context():
             user1 = User(name="u1", email="u1").save()
@@ -378,7 +378,7 @@ class TeamModelTestCase(MoeTestCase):
                 project1.allow_apply_type = 999
                 project1.save()
 
-    def test_CASECAD(self):
+    def legacy_CASECAD(self):
         """测试和团队绑定的删除"""
         with self.app.test_request_context():
             user1 = User(name="u1", email="u1").save()

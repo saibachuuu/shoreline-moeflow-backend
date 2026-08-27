@@ -90,18 +90,57 @@ class Application(Document):
 
     def allow(self, operator, role=None):
         self.can_change_status()
+        project_tags = None
+        project_display_name = None
+        if self.group.__class__.__name__ == "Project":
+            from app.services.project_invitation import ProjectInvitationAdapter
+
+            # Capture the existing projection before the legacy join rewrites
+            # member tags.  A None capture means there is no projection yet:
+            # pass tags=None so project_active keeps the tags join just wrote
+            # instead of overwriting them with an empty list.
+            member = ProjectInvitationAdapter._project_member(self.group, self.user)
+            if member is not None:
+                project_tags = list(member.tags)
+                project_display_name = member.display_name
         # 提供role的话则设置为此角色
         # 用于已有申请,管理员又通过接口进行邀请,并设置了角色,这时候就用这个角色加入用户
         self.user.join(self.group, role)
         self.status = ApplicationStatus.ALLOW
         self.operator = operator
         self.save()
+        if self.group.__class__.__name__ == "Project":
+            from app.services.project_invitation import ProjectInvitationAdapter
+
+            ProjectInvitationAdapter.project_active(
+                self,
+                tags=project_tags,
+                display_name=project_display_name,
+                operator=operator,
+            )
 
     def deny(self, operator):
         self.can_change_status()
         self.status = ApplicationStatus.DENY
         self.operator = operator
         self.save()
+        if self.group.__class__.__name__ == "Project":
+            from app.services.project_invitation import ProjectInvitationAdapter
+
+            ProjectInvitationAdapter.project_removed(self)
+
+    def delete(self, *args, **kwargs):
+        """Project application cancellation also removes its projection."""
+
+        if (
+            getattr(self, "group", None) is not None
+            and self.group.__class__.__name__ == "Project"
+            and self.status == ApplicationStatus.PENDING
+        ):
+            from app.services.project_invitation import ProjectInvitationAdapter
+
+            ProjectInvitationAdapter.project_removed(self)
+        return super().delete(*args, **kwargs)
 
     def to_api(self, /, *, user=None):
         """

@@ -1,4 +1,4 @@
-from flask_apikit.responses import Pagination
+from app.core.api import Pagination
 
 
 class MoePagination(Pagination):

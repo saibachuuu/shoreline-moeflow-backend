@@ -7,7 +7,7 @@ from app.exceptions import FileTypeNotSupportError, NoPermissionError
 from app.models.file import File, Source
 from app.models.project import ProjectPermission
 from app.constants.file import FileType
-from flask_apikit.exceptions import ValidateError
+from app.exceptions.base import ValidateError
 from app.validators.source import (
     CreateImageSourceSchema,
     EditImageSourceRankSchema,
@@ -15,7 +15,7 @@ from app.validators.source import (
     SourceSearchSchema,
     BatchSelectTranslationSchema,
 )
-from flask_apikit.utils import QueryParser
+from app.core.api import QueryParser
 
 
 class FileSourceListAPI(MoeAPIView):

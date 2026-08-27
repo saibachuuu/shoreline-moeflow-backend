@@ -79,7 +79,36 @@ from app.utils.type import is_number
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-default_translations_order = ["-selected", "-proofread_content", "-edit_time"]
+# ``edit_time`` can legitimately collide for batch updates.  ObjectId is a
+# stable creation-order tie breaker; relying on Mongo's natural order made
+# revision tests and API responses nondeterministic.
+default_translations_order = [
+    "-selected",
+    "-proofread_content",
+    "-edit_time",
+    "-create_time",
+    "-id",
+]
+
+
+def _next_edit_time(query, current=None):
+    """Return a timestamp strictly newer than the existing sibling records.
+
+    MongoDB stores dates with millisecond precision, so consecutive writes can
+    otherwise share the same ``edit_time`` and make latest-first pagination
+    depend on natural document order.
+    """
+    latest = query.order_by("-edit_time", "-id").first()
+    latest_time = getattr(latest, "edit_time", None)
+    current_time = getattr(current, "edit_time", None)
+    previous_time = max(
+        (value for value in (latest_time, current_time) if value is not None),
+        default=None,
+    )
+    now = datetime.datetime.utcnow()
+    if previous_time is not None and now <= previous_time:
+        return previous_time + datetime.timedelta(milliseconds=1)
+    return now
 
 
 class Filename:
@@ -642,10 +671,18 @@ class File(Document):
                 processed_name = f"{process_name}-{save_name_prefix}.webp"
                 if self.thumbnail_status == ThumbnailStatus.SUCCEEDED:
                     return oss.sign_url(file_prefix, processed_name)
-                # R2 has no cheap per-list existence probe, so an unfinished or
-                # failed generation is all we can report here.  Legacy records
-                # predate the status field and kept working by always signing.
+                # Legacy records predate the status field and kept working by
+                # always signing.
                 if self.thumbnail_status == ThumbnailStatus.UNKNOWN:
+                    return oss.sign_url(file_prefix, processed_name)
+                # The R2 probe is a single head_object per row, the same cost
+                # as the LOCAL fallback below.  Status alone must not decide:
+                # a worker killed mid-task (OOM, redeploy) leaves the document
+                # at GENERATING forever with no redelivery -- Celery acks
+                # early and nothing retries.  Trusting status there would hide
+                # a perfectly good thumbnail permanently, and a rebuild would
+                # blank covers that are still on disk while the queue drains.
+                if oss.is_exist(file_prefix, processed_name):
                     return oss.sign_url(file_prefix, processed_name)
                 return "generating"
             return oss.sign_url(file_prefix, self.save_name, process_name=process_name)
@@ -1188,8 +1225,13 @@ class File(Document):
         else:
             return data
 
-    def to_labelplus(self, /, *, target):
-        """将翻译导出成labelplus格式"""
+    def to_labelplus(self, /, *, target, staff_block=None, staff_block_first=False):
+        """将翻译导出成labelplus格式
+
+        :param staff_block: 可选的人员名单标签块（含标签行与多行文本），
+            整块注入到本文件的标签列表开头（staff_block_first=True）或末尾。
+        :param staff_block_first: staff_block 是否置于文件块开头。
+        """
         data = ""
         if len(self.ancestors) > 0:
             path = "/".join([ancestors.name for ancestors in self.ancestors]) + "/"
@@ -1197,6 +1239,8 @@ class File(Document):
             path = ""
         # 文件路径行
         data += ">>>>>>>>[" + path + self.name + "]<<<<<<<<\r\n"
+        if staff_block is not None and staff_block_first:
+            data += staff_block
         # 遍历所有原文
         for id, source in enumerate(self.sources(), start=1):
             group_id = source.position_type
@@ -1226,6 +1270,8 @@ class File(Document):
             content = content.replace("\n", "\r\n")
             # 再换行
             data += content + "\r\n"
+        if staff_block is not None and not staff_block_first:
+            data += staff_block
         return data
 
     @need_activated
@@ -1502,7 +1548,9 @@ class Source(Document):
         if target:
             tips = tips.filter(target=target)
         # 排序处理
-        tips = mongo_order(tips, order_by, ["-edit_time"])
+        # Batch updates can give multiple tips the same edit_time.  Keep
+        # pagination deterministic by using the ObjectId as a tie-breaker.
+        tips = mongo_order(tips, order_by, ["-edit_time", "-create_time", "-id"])
         # 分页处理
         tips = mongo_slice(tips, skip, limit)
         return tips
@@ -1578,12 +1626,16 @@ class Translation(Document):
                 return
             new_add = True  # 本次新增的
             translation = cls(source=source, user=user, target=target, mt=mt)
+        edit_time = _next_edit_time(
+            cls.objects(source=source, target=target), translation
+        )
         translation.content = content
+        translation.edit_time = edit_time
         try:
             translation.save()
         except mongoengine.errors.NotUniqueError:
             raise TranslationNotUniqueError
-        translation.update_cache("edit_time", datetime.datetime.utcnow())
+        translation.update_cache("edit_time", edit_time)
         # 如果是唯一的翻译，且是新增的，且不是空白，则增加计数
         if (
             translation.other_translations().count() == 0
@@ -1691,7 +1743,14 @@ class Tip(Document):
         # 内容不能为空
         if content == "":
             raise TipEmptyError
-        tip = cls(source=source, user=user, target=target)
+        edit_time = _next_edit_time(Tip.objects(source=source, target=target))
+        tip = cls(
+            source=source,
+            user=user,
+            target=target,
+            create_time=edit_time,
+            edit_time=edit_time,
+        )
         tip.content = content
         tip.save()
         return tip

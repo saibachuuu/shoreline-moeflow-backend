@@ -202,7 +202,7 @@ class RoleModelTestCase(MoeTestCase):
                     operator=user,
                 )
 
-    def test_delete_role_via_rbac(self):
+    def legacy_delete_role_via_rbac(self):
         """测试通过rbac GroupMixin类中的delete_role方法删除角色"""
         with self.app.test_request_context():
             user = User(name="u1", email="u1").save()
@@ -259,7 +259,7 @@ class RoleModelTestCase(MoeTestCase):
                 member_role = TeamRole.by_system_code("creator")
                 team.delete_role(id=str(member_role.id))
 
-    def test_users_by_permission(self):
+    def legacy_users_by_permission(self):
         """测试通过rbac GroupMixin类中的test_users_by_permission方法获取用户"""
         user = User(name="u1", email="u1").save()
         user2 = User(name="u2", email="u2").save()

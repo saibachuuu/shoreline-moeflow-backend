@@ -2,7 +2,7 @@ import time
 
 from app.exceptions import NeedTokenError, VCodeCoolingError
 from app.models.v_code import VCode, VCodeType
-from flask_apikit.exceptions import ValidateError
+from app.exceptions.base import ValidateError
 from tests import MoeAPITestCase
 
 

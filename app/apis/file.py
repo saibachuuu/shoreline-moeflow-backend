@@ -22,8 +22,8 @@ from app.validators.file import (
     FileUploadSchema,
     FileGetSchema,
 )
-from flask_apikit.exceptions import ValidateError
-from flask_apikit.utils import QueryParser
+from app.core.api import QueryParser
+from app.exceptions.base import ValidateError
 
 
 class ProjectFileListAPI(MoeAPIView):

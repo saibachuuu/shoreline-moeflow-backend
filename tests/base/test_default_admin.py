@@ -1,5 +1,5 @@
 from app import create_app
-from app.factory import init_db
+from app.factory import create_or_override_default_admin, init_db
 from app.models.user import User
 from tests import MoeTestCase
 
@@ -41,3 +41,9 @@ class TestDefaultAdmin(MoeTestCase):
         # 测试其他用户权限不受影响
         user.reload()
         self.assertEqual(user.admin, False)
+
+    def test_missing_initial_password_rejects_new_default_admin(self):
+        self.app.config["ADMIN_EMAIL"] = "new-admin@example.com"
+        self.app.config["ADMIN_INITIAL_PASSWORD"] = ""
+        with self.assertRaisesRegex(RuntimeError, "ADMIN_INITIAL_PASSWORD"):
+            create_or_override_default_admin(self.app)

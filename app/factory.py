@@ -1,8 +1,8 @@
 import logging
 import celery
 from flask import Flask
-from flask_apikit import APIKit
 from flask_babel import Babel
+from app.core.api import init_api
 from app.core.rbac import AllowApplyType, ApplicationCheckType
 from app.services.google_storage import GoogleStorage
 import app.config as _app_config
@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 # singleton modules
 babel = Babel()
-apikit = APIKit()
 oss = OSS()
 gs_vision = GoogleStorage()
 
@@ -48,7 +47,7 @@ def init_flask_app(app: Flask):
         locale_selector=app_translations.get_locale,
         default_locale=app_config["BABEL_DEFAULT_LOCALE"],
     )
-    apikit.init_app(app)
+    init_api(app)
     logger.info(f"----- build id: {app_config['BUILD_ID']}")
     with app.app_context():
         logger.debug(
@@ -111,16 +110,19 @@ def create_or_override_default_admin(app: Flask):
             admin_user.save()
             logger.debug("已将 {} 设置为管理员".format(app.config["ADMIN_EMAIL"]))
     else:
+        initial_password = str(app.config.get("ADMIN_INITIAL_PASSWORD") or "").strip()
+        if not initial_password:
+            raise RuntimeError(
+                "ADMIN_INITIAL_PASSWORD must be set before creating the default admin"
+            )
         admin_user = User.create(
             name="Admin",
             email=app.config["ADMIN_EMAIL"],
-            password=app.config["ADMIN_INITIAL_PASSWORD"],
+            password=initial_password,
         )
         admin_user.admin = True
         admin_user.save()
-        logger.debug(
-            "已创建管理员 {}, 默认密码为 123123，请及时修改！".format(admin_user.email)
-        )
+        logger.debug("已创建管理员 {}，请通过安全渠道完成首次登录配置".format(admin_user.email))
     return admin_user
 
 

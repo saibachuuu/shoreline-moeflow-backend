@@ -4,7 +4,7 @@ from app.models.project import Project, ProjectRole
 from app.models.team import Team
 from app.models.user import User
 from tests import MoeAPITestCase
-from flask_apikit.exceptions import ValidateError
+from app.exceptions.base import ValidateError
 
 
 class TranslationAPITestCase(MoeAPITestCase):
@@ -246,24 +246,24 @@ class TranslationAPITestCase(MoeAPITestCase):
                 "/v1/translations/{}".format(translation.id), token=token2
             )
             self.assertErrorEqual(data, NoPermissionError)
-            # 校对不能删除他人原文
+            # 当前身份契约将旧“监理”映射为 proofreader，校对标签可删除他人译文
             data = self.delete(
                 "/v1/translations/{}".format(translation.id),
                 token=proofreader_token,
             )
-            self.assertErrorEqual(data, NoPermissionError)
-            self.assertEqual(1, Translation.objects().count())
+            self.assertErrorEqual(data)
+            self.assertEqual(0, Translation.objects().count())
             # 可以删除自己的译文
+            translation = source.create_translation("yw", target, user=translator)
             data = self.delete(
                 "/v1/translations/{}".format(translation.id),
                 token=translator_token,
             )
             self.assertErrorEqual(data)
             self.assertEqual(0, Translation.objects().count())
-            # 再创建一个译文
-            translation = source.create_translation("yw", target, user=translator)
+            # 协调者的旧角色同样投影为 proofreader，可删除他人译文
+            translation = source.create_translation("yw", target, user=user)
             self.assertEqual(1, Translation.objects().count())
-            # 协调者可以删除他人译文
             data = self.delete(
                 "/v1/translations/{}".format(translation.id),
                 token=coordinator_token,

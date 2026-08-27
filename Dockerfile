@@ -1,9 +1,9 @@
-FROM python:3.11
+FROM python:3.12
 
 LABEL project="moeflow-backend"
 
 COPY ./requirements.txt /tmp/requirements.txt
-RUN pip install -r /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 ARG MOEFLOW_BUILD_ID=unknown
 ENV MOEFLOW_BUILD_ID=${MOEFLOW_BUILD_ID}

@@ -223,7 +223,13 @@ def output_project_task(output_id):
 
 
 def output_project(output_id, /, *, run_sync=False):
-    alive_workers = celery.control.ping()
+    try:
+        alive_workers = celery.control.ping()
+    except Exception:
+        # A development or single-process deployment may not run RabbitMQ.
+        # Treat an unavailable broker like an empty worker pool so the export
+        # still completes synchronously.
+        alive_workers = []
     if len(alive_workers) == 0 or run_sync or _FORCE_SYNC_TASK:
         # 同步执行
         output_project_task(output_id)

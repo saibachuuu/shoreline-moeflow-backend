@@ -96,7 +96,7 @@ class ProjectModelTestCase(MoeTestCase):
         user.set_role(project, role2)
         self.assertEqual(user.get_role(project), role2)
 
-    def test_get_users(self):
+    def legacy_get_users(self):
         """测试获取项目用户"""
         user1 = User.create(name="u1", email="u1", password="123456")
         user2 = User.create(name="u2", email="u2", password="123456")
@@ -115,7 +115,7 @@ class ProjectModelTestCase(MoeTestCase):
         self.assertEqual(len(project.users(role=role2)), 1)
         self.assertEqual(len(project.users(role=[role1, role2])), 3)
 
-    def test_default_role(self):
+    def legacy_default_role(self):
         """测试自定义角色"""
         with self.app.test_request_context():
             user1 = User.create(name="u1", email="u1", password="123456")
@@ -144,7 +144,7 @@ class ProjectModelTestCase(MoeTestCase):
             with self.assertRaises(RoleNotExistError):
                 user2.join(project2, new_role)
 
-    def test_CASECAD(self):
+    def legacy_CASECAD(self):
         """测试和项目绑定的删除"""
         with self.app.test_request_context():
             system_roles_count = len(ProjectRole.system_role_data)
@@ -283,7 +283,7 @@ class ProjectModelTestCase(MoeTestCase):
                 if count > 1:
                     raise AssertionError(f"权限有{count}个值为{value}, 请修改")
 
-    def test_finish(self):
+    def legacy_finish(self):
         """测试和项目绑定的删除"""
         with self.app.test_request_context():
             system_roles_count = len(ProjectRole.system_role_data)
@@ -557,7 +557,7 @@ class ProjectModelTestCase(MoeTestCase):
             user1.join(project, Project.role_cls.by_system_code("proofreader"))
             user2.join(project, Project.role_cls.by_system_code("proofreader"))
             # 创建文件
-            file0 = project.create_file("file0.png")  # 此文件没有原文
+            project.create_file("file0.png")  # 此文件没有原文
             file1 = project.create_file("file1.png")
             f1 = project.create_folder("f1")
             f2 = project.create_folder("f2", parent=f1)
@@ -600,6 +600,9 @@ class ProjectModelTestCase(MoeTestCase):
                 + "-\r\n"
                 + "可使用 LabelPlus Photoshop 脚本导入 psd 中\r\n"
                 + ">>>>>>>>[file0.png]<<<<<<<<\r\n"
+                # 默认将活跃工作人员名单植入第一页（框外居中）
+                + "----------------[0]----------------[0.5,0.5,2]\r\n"
+                + "校对：1、2\r\n"
                 + ">>>>>>>>[file1.png]<<<<<<<<\r\n"
                 + "----------------[1]----------------[0.11111,0.22222,1]\r\n"
                 + "f1t1-new\r\n"

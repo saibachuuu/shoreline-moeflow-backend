@@ -4,7 +4,7 @@ from app.exceptions import NeedTokenError, NoPermissionError, RoleNotExistError
 from app.models.team import Team, TeamPermission, TeamRole
 from app.models.user import User
 from app.constants.role import RoleType
-from flask_apikit.exceptions import ValidateError
+from app.exceptions.base import ValidateError
 from tests import MoeAPITestCase
 
 

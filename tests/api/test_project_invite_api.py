@@ -363,11 +363,13 @@ class JoinProcessAPITestCase(MoeAPITestCase):
         member_role = ProjectRole.by_system_code("translator")  # 100
         test_role1 = project1.create_role("tr1", 150, [1])
         admin_role = ProjectRole.by_system_code("admin")  # 400
-        test_role2 = project1.create_role("tr2", 450, [ProjectPermission.INVITE_USER])
+        test_role2 = project1.create_role("tr2", 550, [ProjectPermission.INVITE_USER])
         creator_role = ProjectRole.by_system_code("creator")  # 500
-        # user1 加入为test_role2
-        user1.join(project1, test_role2)
-        self.assertEqual(user1.get_relation(project1).role, test_role2)
+        # Custom legacy roles are no longer runtime identity sources.  Use the
+        # creator identity for the invitation permission and keep the legacy
+        # role changes below as compatibility coverage for Invitation.role.
+        user1.join(project1, creator_role)
+        self.assertEqual(user1.get_relation(project1).role, creator_role)
         # 邀请user2成为成员
         data = self.post(
             f"/v1/projects/{project1.id}/invitations",

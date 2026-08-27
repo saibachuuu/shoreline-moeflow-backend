@@ -31,6 +31,14 @@ def create_test_app():
     # reset the db
     connection.get_db().client.drop_database(connection.get_db().name)
     init_db(app)
+    # MongoEngine caches collection index creation per process.  The test
+    # suite drops and recreates the database for every case, so explicitly
+    # restore the identity indexes after each reset.
+    from app.models.project_member import ProjectMember
+    from app.models.team_member import TeamMember
+
+    ProjectMember.ensure_indexes()
+    TeamMember.ensure_indexes()
     # ``dotenv.load_dotenv`` does not override env vars that are already set,
     # so the container's real environment (e.g. STORAGE_DOMAIN) shadows
     # .env.test.  Force the values that the test suite depends on so the suite

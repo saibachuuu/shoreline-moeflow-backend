@@ -1,9 +1,8 @@
 from marshmallow import fields, post_load, validates_schema
 
 from app.exceptions import ProjectSetNotExistError, LanguageNotExistError
-from app.models.project import Project, ProjectSet
+from app.models.project import Project
 from app.models.language import Language
-from app.constants.project import ProjectStatus
 from app.constants.role import RoleType
 from app.constants.output import OutputTypes
 from app.validators.custom_message import required_message
@@ -11,6 +10,7 @@ from app.validators.custom_validate import (
     ProjectSetValidate,
     ProjectValidate,
     need_in,
+    not_zero,
     object_id,
 )
 from app.validators.custom_schema import DefaultSchema
@@ -23,71 +23,6 @@ class ProjectSetsSchema(DefaultSchema):
         validate=[ProjectSetValidate.name_length],
         error_messages={**required_message},
     )
-
-
-class SearchTeamProjectSchema(DefaultSchema):
-    """搜索团队下项目验证器"""
-
-    status = fields.List(
-        fields.Int(validate=[need_in(ProjectStatus.ids())]), missing=None
-    )
-    word = fields.Str(missing=None)
-    project_set = fields.Str(missing=None)
-    project_sets = fields.List(fields.Str(), missing=None)
-    mode = fields.Str(missing=None)
-    role = fields.Str(missing=None)
-    worker_name = fields.Str(missing=None)
-
-    @post_load
-    def to_model(self, in_data):
-        """通过id获取模型，以供直接使用"""
-        if in_data["project_set"]:
-            project_set = ProjectSet.objects(
-                id=in_data["project_set"], team=self.context["team"]
-            ).first()
-            if project_set is None:
-                raise ProjectSetNotExistError
-            in_data["project_set"] = project_set
-        if in_data["project_sets"]:
-            project_sets = list(
-                ProjectSet.objects(
-                    id__in=in_data["project_sets"], team=self.context["team"]
-                )
-            )
-            if len(project_sets) != len(set(in_data["project_sets"])):
-                raise ProjectSetNotExistError
-            in_data["project_sets"] = project_sets
-        return in_data
-
-    @validates_schema
-    def validate_search_params(self, in_data):
-        mode = in_data.get("mode")
-        worker_name = in_data.get("worker_name")
-        if mode == "search-worker" and not worker_name:
-            raise ValidationError(
-                "worker_name is required when mode is 'search-worker'"
-            )
-        role = in_data.get("role")
-        if role and role not in (
-            "provider",
-            "scan",
-            "scan_retoucher",
-            "translator",
-            "proofreader",
-            "picture_editor",
-        ):
-            in_data["role"] = None
-        if mode not in ("search-project-name", "search-worker"):
-            in_data["mode"] = None
-
-
-class SearchUserProjectSchema(DefaultSchema):
-    """搜索用户下项目验证器"""
-
-    status = fields.List(
-        fields.Int(validate=[need_in(ProjectStatus.ids())]), missing=None
-    )
-    word = fields.Str(missing=None)
 
 
 class CreateProjectSchema(DefaultSchema):
@@ -136,10 +71,10 @@ class CreateProjectSchema(DefaultSchema):
         ),
         required=True,
     )
-    labelplus_txt = fields.Str(missing=None)
+    labelplus_txt = fields.Str(load_default=None)
 
     @validates_schema
-    def verify_default_role(self, data):
+    def verify_default_role(self, data, **kwargs):
         # 角色必须在系统团队的角色中
         need_in(
             [
@@ -149,7 +84,7 @@ class CreateProjectSchema(DefaultSchema):
         )(data["default_role"], field_name="default_role")
 
     @post_load
-    def to_model(self, in_data):
+    def to_model(self, in_data, **kwargs):
         """通过id获取模型，以供直接使用"""
         # 获取默认角色
         in_data["default_role"] = Project.role_cls.by_id(in_data["default_role"])
@@ -167,12 +102,12 @@ class CreateProjectSchema(DefaultSchema):
         try:
             in_data["source_language"] = Language.by_code(in_data["source_language"])
         except LanguageNotExistError as e:
-            raise ValidationError(e.message, field_names="source_language")
+            raise ValidationError(e.message, field_name="source_language")
         # 获取目标语言
         try:
             in_data["target_languages"] = Language.by_codes(in_data["target_languages"])
         except LanguageNotExistError as e:
-            raise ValidationError(e.message, field_names="target_languages")
+            raise ValidationError(e.message, field_name="target_languages")
         return in_data
 
 
@@ -219,10 +154,10 @@ class ImportProjectSchema(DefaultSchema):
         validate=[need_in(Language.codes)],
         error_messages={**required_message},
     )
-    labelplus_txt = fields.Str(missing=None)
+    labelplus_txt = fields.Str(load_default=None)
 
     @validates_schema
-    def verify_default_role(self, data):
+    def verify_default_role(self, data, **kwargs):
         # 角色必须在系统团队的角色中
         need_in(
             [
@@ -232,7 +167,7 @@ class ImportProjectSchema(DefaultSchema):
         )(data["default_role"], field_name="default_role")
 
     @post_load
-    def to_model(self, in_data):
+    def to_model(self, in_data, **kwargs):
         """通过id获取模型，以供直接使用"""
         # 获取默认角色
         in_data["default_role"] = Project.role_cls.by_id(in_data["default_role"])
@@ -250,12 +185,12 @@ class ImportProjectSchema(DefaultSchema):
         try:
             in_data["source_language"] = Language.by_code(in_data["source_language"])
         except LanguageNotExistError as e:
-            raise ValidationError(e.message, field_names="source_language")
+            raise ValidationError(e.message, field_name="source_language")
         # 获取目标语言
         try:
             in_data["output_language"] = Language.by_code(in_data["output_language"])
         except LanguageNotExistError as e:
-            raise ValidationError(e.message, field_names="output_language")
+            raise ValidationError(e.message, field_name="output_language")
         return in_data
 
 
@@ -278,9 +213,12 @@ class EditProjectSchema(DefaultSchema):
     )
     default_role = fields.Str(validate=[object_id])
     project_set = fields.Str(validate=[object_id])
+    # 人员名单植入页序号：正数从前往后（1=第一页），负数从后往前（-1=最后一页），
+    # 非零整数；null 表示未设置（跟随团队/默认）；不校验是否超出实际页数。
+    staff_list_page = fields.Int(allow_none=True, validate=[not_zero])
 
     @validates_schema
-    def verify_default_role(self, data):
+    def verify_default_role(self, data, **kwargs):
         # 角色必须在团队的角色中
         if "default_role" in data:
             need_in(
@@ -293,7 +231,7 @@ class EditProjectSchema(DefaultSchema):
             )(data["default_role"], field_name="default_role")
 
     @post_load
-    def to_model(self, in_data):
+    def to_model(self, in_data, **kwargs):
         """通过id获取模型，以供直接使用"""
         # 获取默认角色
         if "default_role" in in_data:
@@ -332,7 +270,7 @@ class CreateProjectTargetSchema(DefaultSchema):
     )
 
     @post_load
-    def to_model(self, in_data):
+    def to_model(self, in_data, **kwargs):
         """通过id获取模型，以供直接使用"""
         in_data["language"] = Language.by_code(in_data["language"])
         return in_data
@@ -346,13 +284,13 @@ class CreateOutputSchema(DefaultSchema):
         validate=[need_in(OutputTypes.ids())],
         error_messages={**required_message},
     )
-    file_ids_include = fields.List(fields.Str(validate=[object_id]), missing=None)
-    file_ids_exclude = fields.List(fields.Str(validate=[object_id]), missing=None)
+    file_ids_include = fields.List(fields.Str(validate=[object_id]), load_default=None)
+    file_ids_exclude = fields.List(fields.Str(validate=[object_id]), load_default=None)
 
 
 class TeamInsightUserListSchema(DefaultSchema):
-    word = fields.Str(missing=None)
+    word = fields.Str(load_default=None)
 
 
 class TeamInsightProjectListSchema(DefaultSchema):
-    word = fields.Str(missing=None)
+    word = fields.Str(load_default=None)

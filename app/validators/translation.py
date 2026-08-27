@@ -4,7 +4,7 @@ from marshmallow import fields, validates_schema
 from app.validators.custom_message import required_message
 from app.validators.custom_schema import DefaultSchema
 from app.validators.custom_validate import object_id
-from flask_apikit.exceptions import ValidateError
+from app.exceptions.base import ValidateError
 
 
 class CreateTranslationSchema(DefaultSchema):
@@ -22,6 +22,6 @@ class EditTranslationSchema(DefaultSchema):
     selected = fields.Bool()
 
     @validates_schema
-    def verify_empty(self, data):
+    def verify_empty(self, data, **kwargs):
         if len(data) == 0:
             raise ValidateError(gettext("没有有效参数"))

@@ -4,7 +4,6 @@ from bson import ObjectId
 
 # FIXME: testee should be parametrized instance, not singleton
 from app import TMP_PATH, oss
-from app.constants.storage import StorageType
 from tests import MoeTestCase
 
 

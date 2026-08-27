@@ -8,13 +8,13 @@
 
 ## 安装步骤
 
-1. 安装 Python 3.10 版本
+1. 安装 Python 3.12 版本
 2. 依赖环境 MangoDB、Erlang、RabbitMQ
-3. `pip install -r requirements.txt` （这一步如果 Windows 有报错，请在环境变量里面加 `PYTHONUTF8=1` ）
+3. `py -3.12 -m pip install -r requirements.txt` （这一步如果 Windows 有报错，请在环境变量里面加 `PYTHONUTF8=1` ）
 4. 以 `/config.py` 为模板创建 `/configs/dev.py` 用于开发（此目录已被 git ignore）
 5. 开发时，请直接在 `/configs/dev.py` 文件里面修改必填的配置
 6. 运行前注意配置环境变量 `CONFIG_PATH=../configs/dev.py`
-7. 运行主进程： `python manage.py run`
+7. 运行主进程： `py -3.12 manage.py run`
 8. 在 `DEBUG` 开启的情况下，注册等验证码信息，直接看命令行输出的日志信息。
 9. _(可选)_ 导入、导出等功能需要依赖两个 celery worker 进程，调试时可按另附的步骤启动。
 

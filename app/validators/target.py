@@ -4,4 +4,4 @@ from app.validators.custom_schema import DefaultSchema
 
 
 class TargetSearchSchema(DefaultSchema):
-    word = fields.Str(missing=None)
+    word = fields.Str(load_default=None)

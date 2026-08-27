@@ -33,7 +33,7 @@ class TermBankSchema(DefaultSchema):
     )
 
     @post_load
-    def to_model(self, in_data):
+    def to_model(self, in_data, **kwargs):
         """通过id获取模型，以供直接使用"""
         # 获取语言模型对象
         in_data["source_language"] = Language.by_id(in_data["source_language_id"])

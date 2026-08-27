@@ -74,6 +74,32 @@ class Output(Document):
         except Exception as e:
             logger.error(e)
 
+    @classmethod
+    def delete_real_files_strict(cls, outputs):
+        """Delete output objects and propagate storage failures.
+
+        The legacy helper intentionally treats missing or unavailable storage
+        as a best-effort cleanup.  Lifecycle clearing needs the opposite
+        contract so it can leave the project retryable instead of reporting a
+        successful destructive operation while objects remain.
+        """
+
+        outputs = list(outputs)
+        if not outputs:
+            return
+        oss.delete(
+            current_app.config["OSS_OUTPUT_PREFIX"],
+            [str(output.id) + "/" + output.file_name for output in outputs],
+        )
+        oss.rmdir(
+            [
+                os.path.join(
+                    current_app.config["OSS_OUTPUT_PREFIX"], str(output.id)
+                )
+                for output in outputs
+            ],
+        )
+
     def delete_real_file(self):
         try:
             oss.delete(

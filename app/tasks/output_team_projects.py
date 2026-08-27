@@ -11,7 +11,7 @@ from app.constants.output import OutputTypes
 from app.constants.project import ProjectStatus
 from app.models import connect_db
 from app.tasks.output_project import output_project
-from . import SyncResult
+from . import SyncResult, _FORCE_SYNC_TASK
 from celery.utils.log import get_task_logger
 
 logger = get_task_logger(__name__)
@@ -67,8 +67,11 @@ def output_team_projects_task(team_id, current_user_id):
 
 
 def output_team_projects(team_id, current_user_id, /, *, run_sync=False):
-    alive_workers = celery.control.ping()
-    if len(alive_workers) == 0 or run_sync:
+    try:
+        alive_workers = celery.control.ping()
+    except Exception:
+        alive_workers = []
+    if len(alive_workers) == 0 or run_sync or _FORCE_SYNC_TASK:
         # 同步执行
         output_team_projects_task(team_id, current_user_id)
         return SyncResult()

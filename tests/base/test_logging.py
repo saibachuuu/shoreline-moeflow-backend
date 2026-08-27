@@ -1,4 +1,4 @@
-from app import flask_app, create_app
+from app import create_app
 import app.utils.logging as app_logging
 import logging
 
@@ -8,7 +8,7 @@ logger.setLevel(logging.DEBUG)
 
 
 def test_logging():
-    assert 1 is 1
+    assert 1 == 1
     logger.log(0, "notset?")
     logger.debug("debug")
     logger.info("info")

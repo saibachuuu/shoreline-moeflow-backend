@@ -9,7 +9,7 @@ from app.models.file import Source
 from app.models.project import Project
 from app.models.team import Team
 from app.models.user import User
-from flask_apikit.exceptions import ValidateError
+from app.exceptions.base import ValidateError
 from tests import MoeAPITestCase
 
 
@@ -24,7 +24,7 @@ class SourceAPITestCase(MoeAPITestCase):
         team = Team.create("t1", creator=user)
         project = Project.create("p1", team=team, creator=user)
         target = project.targets().first()
-        text_file = project.create_file("f1.txt")
+        project.create_file("f1.txt")
         image_file = project.create_file("f1.jpg")
         # 创建原文
         image_file.create_source("1")

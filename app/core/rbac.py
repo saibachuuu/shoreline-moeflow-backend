@@ -430,17 +430,39 @@ class GroupMixin:
         """
         from app.models.user import User
 
-        # 搜索相关的用户
-        relational_users = (
-            self.relation_cls.objects(group=self).scalar("user").no_dereference()
-        )
-        if role:
-            if isinstance(role, list):
-                relational_users = relational_users.filter(role__in=role)
-            else:
-                relational_users = relational_users.filter(role=role)
-        # 进一步筛选
-        users = User.objects(id__in=[u.id for u in relational_users])
+        if self.group_type == "team":
+            from app.models.team_member import TeamMember
+
+            members = TeamMember.objects(team=self, status="active")
+            if role:
+                codes = {
+                    getattr(item, "system_code", item)
+                    for item in (role if isinstance(role, list) else [role])
+                }
+                codes = {
+                    "member" if code in {"beginner", "senior"} else code
+                    for code in codes
+                    if code
+                }
+                members = members.filter(base_tag__in=codes)
+        else:
+            from app.models.project_member import ProjectMember
+
+            # External members have the ``user`` field absent from the document
+            # (see ProjectMember.to_mongo), so ``user__ne=None`` would match
+            # them on real MongoDB ($ne on a missing field is true) and crash
+            # on member.user below.  ``user__exists`` filters them explicitly.
+            members = ProjectMember.objects(project=self, status="active", user__exists=True)
+            if role:
+                codes = {getattr(item, "system_code", item) for item in (role if isinstance(role, list) else [role])}
+                # Custom roles are disabled (see ce2383b); legacy role rows may
+                # still carry system_code=None.  Drop None instead of letting a
+                # lone {None} empty every match.
+                codes = {code for code in codes if code}
+                tag_map = {"creator": "creator", "admin": "admin", "coordinator": "proofreader", "proofreader": "proofreader", "translator": "translator", "picture_editor": "typesetter", "supporter": "translator"}
+                tags = {tag_map.get(code, code) for code in codes}
+                members = [member for member in members if tags.intersection(member.tags)]
+        users = User.objects(id__in=[member.user.id for member in members])
         # 模糊搜索词
         if word:
             users = users.filter(name__icontains=word)

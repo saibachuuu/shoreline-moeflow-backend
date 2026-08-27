@@ -12,12 +12,12 @@ from app.decorators.auth import token_required
 from app.decorators.url import fetch_model
 from app.exceptions import (
     NoPermissionError,
-    ProjectNotFinishedError,
     RequestDataEmptyError,
 )
 from app.models.project import Project, ProjectPermission
 from app.models.target import Target
 from app.models.output import Output
+from app.services.project_member import ProjectMemberService
 from app.constants.project import ProjectStatus
 from app.constants.storage import StorageType
 from app.validators.project import (
@@ -52,7 +52,11 @@ class ProjectAPI(MoeAPIView):
             project, ProjectPermission.ACCESS
         ) and not self.current_user.can(project.team, TeamPermission.ACCESS):
             raise NoPermissionError(gettext("您没有此项目的访问权限"))
-        return project.to_api(user=self.current_user)
+        data = project.to_api(user=self.current_user)
+        data["member_summary"] = ProjectMemberService.member_summaries([project]).get(
+            str(project.id), []
+        )
+        return data
 
     @token_required
     @fetch_model(Project)
@@ -90,71 +94,14 @@ class ProjectAPI(MoeAPIView):
             raise RequestDataEmptyError
         project.update(**data)
         project.reload()
+        project_data = project.to_api(user=self.current_user)
+        project_data["member_summary"] = ProjectMemberService.member_summaries(
+            [project]
+        ).get(str(project.id), [])
         return {
             "message": gettext("修改成功"),
-            "project": project.to_api(user=self.current_user),
+            "project": project_data,
         }
-
-    @token_required
-    @fetch_model(Project)
-    def delete(self, project: Project):
-        """
-        @api {put} /v1/projects/<project_id> 完结项目
-        @apiVersion 1.0.0
-        @apiName deleteProjectAPI
-        @apiGroup Project
-        @apiUse APIHeader
-        @apiUse TokenHeader
-
-        @apiParam {String} project_id 项目id
-
-        @apiSuccess {String} msg 提示消息
-        @apiSuccessExample {json} 返回示例
-        {
-            "message": "完结项目成功"
-        }
-
-        @apiUse ValidateError
-        """
-        # 检查项目是否已完成
-        if project.status != ProjectStatus.WORKING:
-            raise ProjectFinishedError
-        # 检查权限
-        if not self.current_user.can(project, ProjectPermission.FINISH):
-            raise NoPermissionError
-        project.finish()
-        return {"message": gettext("完结项目成功")}
-
-
-class ProjectResumeAPI(MoeAPIView):
-    @token_required
-    @fetch_model(Project)
-    def post(self, project: Project):
-        """
-        @api {post} /v1/projects/<project_id>/resume 恢复已完结的项目
-        @apiVersion 1.0.0
-        @apiName postProjectResumeAPI
-        @apiGroup Project
-        @apiUse APIHeader
-        @apiUse TokenHeader
-
-        @apiSuccess {String} msg 提示消息
-        @apiSuccessExample {json} 返回示例
-        {
-            "message": "取消成功"
-        }
-
-        @apiUse ValidateError
-        """
-        # 检查项目是否已完成
-        if project.status != ProjectStatus.FINISHED:
-            raise ProjectNotFinishedError(gettext("操作无效"))
-        # 检查是否有权限
-        if not self.current_user.can(project, ProjectPermission.FINISH):
-            raise NoPermissionError
-        project.resume()
-        return {"message": gettext("恢复项目成功")}
-
 
 class ProjectTargetListAPI(MoeAPIView):
     @token_required
@@ -380,120 +327,6 @@ class ProjectOCRAPI(MoeAPIView):
         images.update(parse_status=ParseStatus.QUEUING)
         ocr("project", str(project.id))
         return {"message": gettext("已开始自动标记")}
-
-
-# TODO： 准备删掉这个 api
-class ProjectDeletePlanAPI(MoeAPIView):
-    @token_required
-    @fetch_model(Project)
-    def post(self, project: Project):
-        """
-        @api {post} /v1/projects/<project_id>/delete-plan 创建销毁计划
-        @apiVersion 1.0.0
-        @apiName project_create_delete_plan
-        @apiGroup Project
-        @apiUse APIHeader
-        @apiUse TokenHeader
-
-        @apiSuccess {String} msg 提示消息
-        @apiSuccessExample {json} 返回示例
-        {
-            "message": "销毁计划创建成功"
-        }
-
-        @apiUse ValidateError
-        """
-        if not current_app.config["TESTING"]:
-            return
-        # 检查权限
-        if not self.current_user.can(project, ProjectPermission.DELETE):
-            raise NoPermissionError
-        project.plan_delete()
-        return {"message": gettext("销毁计划创建成功")}
-
-    @token_required
-    @fetch_model(Project)
-    def delete(self, project: Project):
-        """
-        @api {delete} /v1/projects/<project_id>/delete-plan 取消销毁计划
-        @apiVersion 1.0.0
-        @apiName project_delete_delete_plan
-        @apiGroup Project
-        @apiUse APIHeader
-        @apiUse TokenHeader
-
-        @apiSuccess {String} msg 提示消息
-        @apiSuccessExample {json} 返回示例
-        {
-            "message": "销毁计划取消成功"
-        }
-
-        @apiUse ValidateError
-        """
-        if not current_app.config["TESTING"]:
-            return
-        # 检查权限
-        if not self.current_user.can(project, ProjectPermission.DELETE):
-            raise NoPermissionError
-        project.cancel_delete_plan()
-        return {"message": gettext("销毁计划取消成功")}
-
-
-# TODO：准备删掉这个 api
-class ProjectFinishPlanAPI(MoeAPIView):
-    @token_required
-    @fetch_model(Project)
-    def post(self, project: Project):
-        """
-        @api {post} /v1/projects/<project_id>/finish-plan 创建完结计划
-        @apiVersion 1.0.0
-        @apiName project_create_finish_plan
-        @apiGroup Project
-        @apiUse APIHeader
-        @apiUse TokenHeader
-
-        @apiSuccess {String} msg 提示消息
-        @apiSuccessExample {json} 返回示例
-        {
-            "message": "完结计划创建成功"
-        }
-
-        @apiUse ValidateError
-        """
-        if not current_app.config["TESTING"]:
-            return
-        # 检查权限
-        if not self.current_user.can(project, ProjectPermission.FINISH):
-            raise NoPermissionError
-        project.plan_finish()
-        return {"message": gettext("完结计划创建成功")}
-
-    @token_required
-    @fetch_model(Project)
-    def delete(self, project: Project):
-        """
-        @api {delete} /v1/projects/<project_id>/finish-plan 取消完结计划
-        @apiVersion 1.0.0
-        @apiName project_delete_finish_plan
-        @apiGroup Project
-        @apiUse APIHeader
-        @apiUse TokenHeader
-
-        @apiSuccess {String} msg 提示消息
-        @apiSuccessExample {json} 返回示例
-        {
-            "message": "完结计划取消成功"
-        }
-
-        @apiUse ValidateError
-        """
-        if not current_app.config["TESTING"]:
-            return
-        # 检查权限
-        if not self.current_user.can(project, ProjectPermission.FINISH):
-            raise NoPermissionError
-        project.cancel_finish_plan()
-        return {"message": gettext("完结计划取消成功")}
 
 
 class ProjectThumbnailAPI(MoeAPIView):

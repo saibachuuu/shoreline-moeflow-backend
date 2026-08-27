@@ -15,6 +15,13 @@ from app.models.user import User
 from app.validators import RegisterSchema
 from app.validators.admin import AdminStatusSchema
 from app.validators.auth import AdminEditUserPasswordSchema, AdminRegisterSchema
+from mongoengine import Q
+
+
+def _user_search_query(word):
+    """Search only site-scoped user names and aliases."""
+
+    return Q(name_search__icontains=word) | Q(aliases_search__icontains=word)
 
 
 class UserListAPI(MoeAPIView):
@@ -48,8 +55,8 @@ class UserListAPI(MoeAPIView):
         if "word" not in query or query["word"] == "":
             raise RequestDataEmptyError
         p = MoePagination()
-        objects = (
-            User.objects(name__icontains=query["word"]).skip(p.skip).limit(p.limit)
+        objects = User.objects(_user_search_query(query["word"])).skip(p.skip).limit(
+            p.limit
         )
         return p.set_objects(objects)
 
@@ -154,7 +161,7 @@ class AdminUserListAPI(MoeAPIView):
         word = query["word"]
         objects = (
             (
-                User.objects(name__icontains=query["word"])
+                User.objects(_user_search_query(query["word"]))
                 .skip(p.skip)
                 .limit(p.limit)
                 .order_by("-create_time")

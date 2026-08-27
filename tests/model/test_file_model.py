@@ -1488,7 +1488,7 @@ class FileModelTestCase(MoeTestCase):
                 target_languages=Language.by_code("zh-CN"),
             )
             # 创建测试用文件、文件夹
-            file1 = project.create_file("1.txt")
+            project.create_file("1.txt")
             dir1 = project.create_folder("dir.txt")
             """
                 |
