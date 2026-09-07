@@ -3,10 +3,13 @@ import re
 import time
 from typing import NoReturn, Optional, Union
 
-import jwt
 from flask import current_app, g
 from flask_babel import gettext
-from itsdangerous import BadSignature, URLSafeTimedSerializer
+from itsdangerous import (
+    BadSignature,
+    TimedJSONWebSignatureSerializer,
+    URLSafeTimedSerializer,
+)
 from mongoengine import (
     CASCADE,
     NULLIFY,
@@ -259,22 +262,11 @@ class User(Document):
         try:
             data = serializer.loads(token, max_age=2592000)
         except BadSignature as serializer_error:
-            # Tokens issued before this migration used HS512 JWS with an exp
-            # header rather than an exp claim in the payload.
+            # Tokens issued before this migration used HS512 JWS with TimedJSONWebSignatureSerializer
             try:
-                header = jwt.get_unverified_header(token)
-                if header.get("alg") != "HS512":
-                    raise jwt.InvalidTokenError("unexpected legacy token algorithm")
-                data = jwt.decode(
-                    token,
-                    secret_key,
-                    algorithms=["HS512"],
-                    options={"verify_exp": False},
-                )
-                expires_at = int(header["exp"])
-                if expires_at < int(time.time()):
-                    raise jwt.ExpiredSignatureError("legacy token has expired")
-            except jwt.InvalidTokenError:
+                legacy_serializer = TimedJSONWebSignatureSerializer(secret_key)
+                data = legacy_serializer.loads(token)
+            except Exception:
                 raise BadTokenError(f"令牌错误，{serializer_error}")
         # 获取用户
         user = User.objects(id=data.get("id")).first()

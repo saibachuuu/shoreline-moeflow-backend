@@ -71,7 +71,7 @@ class CreateProjectSchema(DefaultSchema):
         ),
         required=True,
     )
-    labelplus_txt = fields.Str(load_default=None)
+    labelplus_txt = fields.Str(missing=None)
 
     @validates_schema
     def verify_default_role(self, data, **kwargs):
@@ -154,7 +154,7 @@ class ImportProjectSchema(DefaultSchema):
         validate=[need_in(Language.codes)],
         error_messages={**required_message},
     )
-    labelplus_txt = fields.Str(load_default=None)
+    labelplus_txt = fields.Str(missing=None)
 
     @validates_schema
     def verify_default_role(self, data, **kwargs):
@@ -284,13 +284,13 @@ class CreateOutputSchema(DefaultSchema):
         validate=[need_in(OutputTypes.ids())],
         error_messages={**required_message},
     )
-    file_ids_include = fields.List(fields.Str(validate=[object_id]), load_default=None)
-    file_ids_exclude = fields.List(fields.Str(validate=[object_id]), load_default=None)
+    file_ids_include = fields.List(fields.Str(validate=[object_id]), missing=None)
+    file_ids_exclude = fields.List(fields.Str(validate=[object_id]), missing=None)
 
 
 class TeamInsightUserListSchema(DefaultSchema):
-    word = fields.Str(load_default=None)
+    word = fields.Str(missing=None)
 
 
 class TeamInsightProjectListSchema(DefaultSchema):
-    word = fields.Str(load_default=None)
+    word = fields.Str(missing=None)

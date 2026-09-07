@@ -10,16 +10,16 @@ from app.constants.source import SourcePositionType
 
 
 class SourceSearchSchema(DefaultSchema):
-    paging = fields.Bool(load_default=True)
+    paging = fields.Bool(missing=True)
     target_id = fields.Str(required=True, validate=[object_id])
 
 
 class CreateImageSourceSchema(DefaultSchema):
-    content = fields.Str(load_default="")
-    x = fields.Float(load_default=0, validate=Range(min=0, max=1))
-    y = fields.Float(load_default=0, validate=Range(min=0, max=1))
+    content = fields.Str(missing="")
+    x = fields.Float(missing=0, validate=Range(min=0, max=1))
+    y = fields.Float(missing=0, validate=Range(min=0, max=1))
     position_type = fields.Int(
-        load_default=SourcePositionType.IN, validate=[need_in(SourcePositionType.ids())]
+        missing=SourcePositionType.IN, validate=[need_in(SourcePositionType.ids())]
     )
 
 

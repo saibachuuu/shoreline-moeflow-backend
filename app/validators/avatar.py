@@ -12,7 +12,7 @@ class EditAvatarSchema(DefaultSchema):
         error_messages={**required_message},
     )
     id = fields.Str(
-        load_default=None,
+        missing=None,
         validate=[object_id],
         error_messages={**required_message},
     )

@@ -20,7 +20,7 @@ class CreateInvitationSchema(DefaultSchema):
     # then optional and only used as the compatibility role of the legacy
     # invitation record.
     role_id = fields.Str(
-        load_default=None,
+        missing=None,
         validate=[object_id],
         error_messages={**required_message},
     )
@@ -29,7 +29,7 @@ class CreateInvitationSchema(DefaultSchema):
         validate=[JoinValidate.message_length],
         error_messages={**required_message},
     )
-    tags = fields.List(fields.Str(), load_default=None)
+    tags = fields.List(fields.Str(), missing=None)
 
     @validates_schema
     def verify_identity(self, data, **kwargs):
@@ -59,16 +59,16 @@ class CreateInvitationSchema(DefaultSchema):
 
 
 class SearchInvitationSchema(DefaultSchema):
-    status = fields.List(fields.Int(), load_default=None)
+    status = fields.List(fields.Int(), missing=None)
 
 
 class SearchRelatedApplicationSchema(DefaultSchema):
-    status = fields.List(fields.Int(), load_default=None)
+    status = fields.List(fields.Int(), missing=None)
 
 
 class ChangeInvitationSchema(DefaultSchema):
-    role_id = fields.Str(load_default=None, error_messages={**required_message})
-    tags = fields.List(fields.Str(), load_default=None)
+    role_id = fields.Str(missing=None, error_messages={**required_message})
+    tags = fields.List(fields.Str(), missing=None)
 
 
 class CheckInvitationSchema(DefaultSchema):
@@ -76,7 +76,7 @@ class CheckInvitationSchema(DefaultSchema):
 
 
 class SearchApplicationSchema(DefaultSchema):
-    status = fields.List(fields.Int(), load_default=None)
+    status = fields.List(fields.Int(), missing=None)
 
 
 class CreateApplicationSchema(DefaultSchema):
