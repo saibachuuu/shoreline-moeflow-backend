@@ -1,5 +1,7 @@
 from typing import Literal
 
+from flask_babel import lazy_gettext
+
 from app.constants.base import IntType
 
 
@@ -13,12 +15,12 @@ class VCodeType(IntType):
 
 
 VCodeTypeIntro = {
-    VCodeType.CAPTCHA: "人机验证码",
-    VCodeType.CONFIRM_EMAIL: "验证邮箱",
-    VCodeType.RESET_EMAIL: "重设邮箱",
-    VCodeType.RESET_PASSWORD: "重置密码",
-    VCodeType.CONFIRM_PHONE: "验证手机",
-    VCodeType.RESET_PHONE: "重设手机",
+    VCodeType.CAPTCHA: lazy_gettext("人机验证码"),
+    VCodeType.CONFIRM_EMAIL: lazy_gettext("验证邮箱"),
+    VCodeType.RESET_EMAIL: lazy_gettext("重设邮箱"),
+    VCodeType.RESET_PASSWORD: lazy_gettext("重置密码"),
+    VCodeType.CONFIRM_PHONE: lazy_gettext("验证手机"),
+    VCodeType.RESET_PHONE: lazy_gettext("重设手机"),
 }
 VCodeTypes = Literal[1, 2, 3, 4, 5, 6]
 

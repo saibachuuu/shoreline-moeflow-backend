@@ -267,7 +267,9 @@ class User(Document):
                 legacy_serializer = TimedJSONWebSignatureSerializer(secret_key)
                 data = legacy_serializer.loads(token)
             except Exception:
-                raise BadTokenError(f"令牌错误，{serializer_error}")
+                raise BadTokenError(
+                    gettext("令牌错误，{error}").format(error=serializer_error)
+                )
         # 获取用户
         user = User.objects(id=data.get("id")).first()
         # 没有此用户

@@ -43,7 +43,7 @@ class AvatarAPI(MoeAPIView):
         owner_type = request.form.get("type")
         owner_id = request.form.get("id")
         if not file:
-            raise UploadFileNotFoundError("请选择图片")
+            raise UploadFileNotFoundError(lazy_gettext("请选择图片"))
         if owner_type == "user":
             avatar_prefix = current_app.config["OSS_USER_AVATAR_PREFIX"]
             avatar_owner = self.current_user
