@@ -1,6 +1,9 @@
 """Small helpers for keeping MongoEngine indexes compatible with migrations."""
 
 
+from pymongo.errors import OperationFailure
+
+
 def _same_index(index, keys, options):
     if tuple(index.get("key", [])) != tuple(keys):
         return False
@@ -46,11 +49,27 @@ def ensure_named_indexes(document_cls, definitions):
         }
         names_to_drop.discard("_id_")
         for index_name in names_to_drop:
-            collection.drop_index(index_name)
+            # Concurrent gunicorn/celery workers can race here: one worker may
+            # have already dropped/created this index while another is about to
+            # drop it, which surfaces as a transient IndexNotFound (code 27) and
+            # would abort an unrelated read request.  Treat that as a no-op.
+            try:
+                collection.drop_index(index_name)
+            except OperationFailure as e:
+                if e.code == 27:  # IndexNotFound
+                    continue
+                raise
 
-        collection.create_index(
-            effective_keys,
-            name=name,
-            background=True,
-            **effective_options,
-        )
+        # Creating a same-name/same-key index is idempotent; a racing worker
+        # might already have created it, which is also fine.
+        try:
+            collection.create_index(
+                effective_keys,
+                name=name,
+                background=True,
+                **effective_options,
+            )
+        except OperationFailure as e:
+            if e.code in (27, 86):  # IndexNotFound / IndexOptionsConflict
+                continue
+            raise
