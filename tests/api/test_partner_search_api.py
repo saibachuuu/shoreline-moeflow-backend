@@ -156,9 +156,7 @@ class TestPartnerSearchAPI(MoeAPITestCase):
         self.assertErrorEqual(data)
         item = data.json["projects"][0]
         self.assertIn("thumbnail_url", item)
-        self.assertIn("cover_url", item)
         self.assertIsNone(item["thumbnail_url"])
-        self.assertIsNone(item["cover_url"])
 
     def test_search_returns_first_page_thumbnail_url(self):
         project = self._create_team_project("有图作品")
@@ -171,10 +169,8 @@ class TestPartnerSearchAPI(MoeAPITestCase):
         self.assertErrorEqual(data)
         item = data.json["projects"][0]
         self.assertIn("thumbnail_url", item)
-        self.assertIn("cover_url", item)
         self.assertIsNotNone(item["thumbnail_url"])
         self.assertEqual(item["thumbnail_url"], img1.cover_url)
-        self.assertEqual(item["cover_url"], img1.cover_url)
 
     def test_search_picks_first_page_by_sort_order(self):
         project = self._create_team_project("排序作品")

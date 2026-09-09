@@ -75,7 +75,6 @@ class PartnerSearchEntryAPI(MoeAPIView):
         @apiSuccess {Object} projects.team_id 所属团队 ID
         @apiSuccess {String} projects.team_name 所属团队名
         @apiSuccess {String} [projects.thumbnail_url] 第一页缩略图 URL（预览）
-        @apiSuccess {String} [projects.cover_url] 第一页缩略图 URL（预览，同 thumbnail_url）
         """
         site_setting = SiteSetting.get()
         if not site_setting.partner_search_enabled:
@@ -176,7 +175,6 @@ class PartnerSearchEntryAPI(MoeAPIView):
                     "team_id": str(team.id) if team else None,
                     "team_name": team.name if team else None,
                     "thumbnail_url": thumbnail_url,
-                    "cover_url": thumbnail_url,
                 }
             )
         return {
