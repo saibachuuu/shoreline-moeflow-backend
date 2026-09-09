@@ -19,10 +19,13 @@ def connect_db(config):
     # MongoEngine 0.29 removed the ``mongomock://`` shortcut. Keep the test
     # configuration readable while passing its supported client class instead.
     if urlsplit(uri).scheme == "mongomock":
-        import mongomock
+        import mongoengine
 
-        uri = uri.replace("mongomock://", "mongodb://", 1)
-        kwargs["mongo_client_class"] = mongomock.MongoClient
+        if tuple(map(int, mongoengine.__version__.split(".")[:2])) >= (0, 29):
+            import mongomock
+
+            uri = uri.replace("mongomock://", "mongodb://", 1)
+            kwargs["mongo_client_class"] = mongomock.MongoClient
 
     return connect(host=uri, **kwargs)
 

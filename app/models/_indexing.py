@@ -1,6 +1,5 @@
 """Small helpers for keeping MongoEngine indexes compatible with migrations."""
 
-
 from pymongo.errors import OperationFailure
 
 

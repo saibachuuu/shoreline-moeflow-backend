@@ -93,9 +93,7 @@ class Output(Document):
         )
         oss.rmdir(
             [
-                os.path.join(
-                    current_app.config["OSS_OUTPUT_PREFIX"], str(output.id)
-                )
+                os.path.join(current_app.config["OSS_OUTPUT_PREFIX"], str(output.id))
                 for output in outputs
             ],
         )

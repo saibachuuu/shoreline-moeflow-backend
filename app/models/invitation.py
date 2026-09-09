@@ -149,16 +149,16 @@ class Invitation(Document):
             try:
                 from app.services.project_invitation import ProjectInvitationAdapter
 
-                member = ProjectInvitationAdapter._project_member(
-                    self.group, self.user
-                )
+                member = ProjectInvitationAdapter._project_member(self.group, self.user)
             except Exception:
                 # The projection collection may be unavailable during early
                 # startup; degrade to the legacy role mapping.
                 member = None
-            tags = _role_code_to_tags(
-                getattr(self.role, "system_code", None)
-            ) if member is None else list(member.tags)
+            tags = (
+                _role_code_to_tags(getattr(self.role, "system_code", None))
+                if member is None
+                else list(member.tags)
+            )
         return {
             "id": str(self.id),
             "user": self.user.to_api(),

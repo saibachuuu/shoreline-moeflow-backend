@@ -404,9 +404,7 @@ class MeProjectListAPI(MoeAPIView):
             )
         projects = projects.order_by("-edit_time")
         project_count = projects.count()
-        paged_projects = list(
-            projects.skip(p.skip).limit(p.limit).select_related()
-        )
+        paged_projects = list(projects.skip(p.skip).limit(p.limit).select_related())
         data = Project.batch_to_list_api(
             paged_projects,
             self.current_user,

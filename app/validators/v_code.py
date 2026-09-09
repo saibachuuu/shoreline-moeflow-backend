@@ -24,9 +24,9 @@ def password_validator(email, password, field_name="password"):
     # 密码错误
     user = User.get_by_email(email)
     if user is None:
-        raise ValidationError(gettext("用户不存在"), field_name=field_name)
+        raise ValidationError(gettext("用户不存在"), [field_name])
     if not user.verify_password(password):
-        raise ValidationError(gettext("密码错误"), field_name=field_name)
+        raise ValidationError(gettext("密码错误"), [field_name])
 
 
 def captcha_validator(info, content, field_name="captcha"):
@@ -41,7 +41,7 @@ def captcha_validator(info, content, field_name="captcha"):
     try:
         Captcha.verify(code_info=info, code_content=content)
     except VCodeRootError as e:
-        raise ValidationError(e.message, field_name=field_name)
+        raise ValidationError(e.message, [field_name])
 
 
 def v_code_validator(
@@ -64,7 +64,7 @@ def v_code_validator(
             delete_after_verified=delete_after_verified,
         )
     except VCodeRootError as e:
-        raise ValidationError(e.message, field_name=field_name)
+        raise ValidationError(e.message, [field_name])
 
 
 class ConfirmEmailVCodeSchema(DefaultSchema):

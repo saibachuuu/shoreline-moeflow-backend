@@ -244,9 +244,9 @@ class ProjectLifecycleService:
         try:
             cls.clear_contents(project)
         except Exception as error:
-            Project.objects(
-                id=project.id, clear_in_progress=True
-            ).update_one(set__clear_in_progress=False)
+            Project.objects(id=project.id, clear_in_progress=True).update_one(
+                set__clear_in_progress=False
+            )
             record_audit(
                 actor=operator,
                 scope="project",
@@ -269,9 +269,9 @@ class ProjectLifecycleService:
             inc__status_version=1,
         )
         if updated != 1:
-            Project.objects(
-                id=project.id, clear_in_progress=True
-            ).update_one(set__clear_in_progress=False)
+            Project.objects(id=project.id, clear_in_progress=True).update_one(
+                set__clear_in_progress=False
+            )
             raise ProjectStateConflictError
         project.reload()
         record_audit(
@@ -303,7 +303,11 @@ class ProjectLifecycleService:
 
         snapshot = IdentityPermissionService.project_snapshot(operator, project)
         team_manager = IdentityPermissionService.is_team_manager(operator, project.team)
-        if not snapshot.is_owner and not snapshot.has("project:MANAGE_MEMBERS") and not team_manager:
+        if (
+            not snapshot.is_owner
+            and not snapshot.has("project:MANAGE_MEMBERS")
+            and not team_manager
+        ):
             raise NoPermissionError
         current_owner_id = str(project.owner_user.id) if project.owner_user else None
         if expected_owner_id is not None and expected_owner_id != current_owner_id:
@@ -318,7 +322,10 @@ class ProjectLifecycleService:
             new_owner = None
         if new_owner is None:
             raise IdentityUserNotFoundError
-        if IdentityPermissionService.is_active_team_member(new_owner, project.team) is None:
+        if (
+            IdentityPermissionService.is_active_team_member(new_owner, project.team)
+            is None
+        ):
             raise OwnerConflictError
         new_member = ProjectMember.objects(
             project=project, user=new_owner, status="active"
@@ -333,7 +340,11 @@ class ProjectLifecycleService:
             if project.owner_user
             else None
         )
-        if old_member is None or old_member.status != "active" or "creator" not in old_member.tags:
+        if (
+            old_member is None
+            or old_member.status != "active"
+            or "creator" not in old_member.tags
+        ):
             raise OwnerConflictError
 
         before_project = _project_state(project)
@@ -417,7 +428,11 @@ class ProjectLifecycleService:
             project=project,
             member=new_member,
             target_user=new_owner,
-            before={"project": before_project, "old_member": before_old, "new_member": before_new},
+            before={
+                "project": before_project,
+                "old_member": before_old,
+                "new_member": before_new,
+            },
             after={
                 "project": _project_state(project),
                 "old_member": _member_state(old_member),

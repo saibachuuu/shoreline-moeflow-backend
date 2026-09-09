@@ -72,9 +72,7 @@ def _write_batches(collection, updates):
 
     operations = []
     for document_id, update in updates:
-        operations.append(
-            UpdateOne({"_id": document_id}, update)
-        )
+        operations.append(UpdateOne({"_id": document_id}, update))
         if len(operations) >= BACKFILL_BATCH_SIZE:
             collection.bulk_write(operations, ordered=False)
             operations = []
@@ -85,10 +83,7 @@ def _write_batches(collection, updates):
 def _backfill(collection, updates, set_spec):
     _write_batches(
         collection,
-        (
-            (document_id, {"$set": {set_spec: value}})
-            for document_id, value in updates
-        ),
+        ((document_id, {"$set": {set_spec: value}}) for document_id, value in updates),
     )
 
 
@@ -137,9 +132,7 @@ def up(db):
     )
 
     _create_named_index(db.project, PROJECT_LIST_INDEX, PROJECT_LIST_KEYS)
-    _create_named_index(
-        db.project, PROJECT_TEAM_LIST_INDEX, PROJECT_TEAM_LIST_KEYS
-    )
+    _create_named_index(db.project, PROJECT_TEAM_LIST_INDEX, PROJECT_TEAM_LIST_KEYS)
     _create_named_index(db.project, PROJECT_NAME_INDEX, PROJECT_NAME_KEYS)
     _create_named_index(db.user, USER_NAME_INDEX, USER_NAME_KEYS)
     _create_named_index(db.user, USER_ALIASES_INDEX, USER_ALIASES_KEYS)
@@ -173,7 +166,10 @@ def verify(db):
         TEAM_ALIAS_INDEX: TEAM_ALIAS_KEYS,
         MEMBER_NAME_INDEX: MEMBER_NAME_KEYS,
     }
-    if any(name not in indexes or tuple(indexes[name].get("key", [])) != keys for name, keys in expected.items()):
+    if any(
+        name not in indexes or tuple(indexes[name].get("key", [])) != keys
+        for name, keys in expected.items()
+    ):
         return False
     projections_valid = not any(
         project.get("ns") != _search_text(project.get("n"))

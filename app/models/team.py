@@ -447,17 +447,23 @@ class Team(GroupMixin, Document):
             from app.models.project_member import ProjectMember
 
             worker_tags = {
-                "provider": "raw_provider", "scan": "scanner",
-                "scan_retoucher": "cleaner", "translator": "translator",
-                "proofreader": "proofreader", "picture_editor": "typesetter",
+                "provider": "raw_provider",
+                "scan": "scanner",
+                "scan_retoucher": "cleaner",
+                "translator": "translator",
+                "proofreader": "proofreader",
+                "picture_editor": "typesetter",
             }
             member_query = ProjectMember.objects(
-                project__in=projects, status="active",
+                project__in=projects,
+                status="active",
                 display_name__icontains=worker_name,
             )
             if role:
                 member_query = member_query.filter(tags=worker_tags.get(role, role))
-            projects = projects.filter(id__in=[member.project.id for member in member_query])
+            projects = projects.filter(
+                id__in=[member.project.id for member in member_query]
+            )
         # 排序处理
         # Projects created or updated in one batch can share edit_time.
         # Without a unique tie-breaker pagination depends on Mongo's natural

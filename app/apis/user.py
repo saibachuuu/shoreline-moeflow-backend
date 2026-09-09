@@ -55,8 +55,8 @@ class UserListAPI(MoeAPIView):
         if "word" not in query or query["word"] == "":
             raise RequestDataEmptyError
         p = MoePagination()
-        objects = User.objects(_user_search_query(query["word"])).skip(p.skip).limit(
-            p.limit
+        objects = (
+            User.objects(_user_search_query(query["word"])).skip(p.skip).limit(p.limit)
         )
         return p.set_objects(objects)
 

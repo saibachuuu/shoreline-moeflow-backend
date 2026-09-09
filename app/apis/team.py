@@ -257,8 +257,9 @@ class TeamAPI(MoeAPIView):
         data = self.get_json(EditTeamSchema(), context={"team": team})
         # 工作人员资格校验模式只允许团队创建者修改，管理员不能绕过
         # 资格体系或让非成员任意进入职位。
-        if "worker_qualification_mode" in data and not IdentityPermissionService.is_team_creator(
-            self.current_user, team
+        if (
+            "worker_qualification_mode" in data
+            and not IdentityPermissionService.is_team_creator(self.current_user, team)
         ):
             raise NoPermissionError(
                 gettext("只有团队创建者可以修改工作人员资格校验设置")
@@ -621,21 +622,20 @@ def get_insight_user_projects_data(
     user: User, team_projects: List[Project], /, *, skip=0, limit=5
 ):
     from app.models.project_member import ProjectMember
-    relations = ProjectMember.objects(
-        user=user, project__in=team_projects, status="active"
-    ).skip(skip).limit(limit)
+
+    relations = (
+        ProjectMember.objects(user=user, project__in=team_projects, status="active")
+        .skip(skip)
+        .limit(limit)
+    )
     user_projects_data = {
         "projects": [],
         "count": relations.count(),
     }
     for relation in relations:
         project_data = _insight_project_data(relation.project)
-        project_data["member_summary"] = [
-            relation.to_api(include_permissions=False)
-        ]
-        user_projects_data["projects"].append(
-            project_data
-        )
+        project_data["member_summary"] = [relation.to_api(include_permissions=False)]
+        user_projects_data["projects"].append(project_data)
     return user_projects_data
 
 
@@ -680,7 +680,10 @@ class TeamInsightUserProjectListAPI(MoeAPIView):
 
 def get_insight_project_users_data(project: Project, /, *, skip=0, limit=5):
     from app.models.project_member import ProjectMember
-    relations = ProjectMember.objects(project=project, status="active").skip(skip).limit(limit)
+
+    relations = (
+        ProjectMember.objects(project=project, status="active").skip(skip).limit(limit)
+    )
     project_users_data = {
         "users": [],
         "count": relations.count(),

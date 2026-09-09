@@ -308,7 +308,14 @@ class TeamMemberService:
 
     @classmethod
     def update_aliases(
-        cls, team, member_id, operator, aliases, *, expected_version=None, request_id=None
+        cls,
+        team,
+        member_id,
+        operator,
+        aliases,
+        *,
+        expected_version=None,
+        request_id=None,
     ):
         member = cls.get(team, member_id)
         if member.status != "active":
@@ -544,10 +551,14 @@ class IdentityTagPolicyService:
                 **(override or {}),
                 "code": code,
                 "source": "team_override" if override else "site",
-                **({
-                    "initial_permissions": list(value["permissions"]),
-                    "initial_assignable": value["assignable"],
-                } if override else {}),
+                **(
+                    {
+                        "initial_permissions": list(value["permissions"]),
+                        "initial_assignable": value["assignable"],
+                    }
+                    if override
+                    else {}
+                ),
             }
         project_tags.update(
             {
@@ -594,7 +605,11 @@ class IdentityTagPolicyService:
                 isinstance(permission, str) for permission in permissions
             ):
                 raise InvalidIdentityRequestError
-            allowed = TEAM_PERMISSION_CODES if scope == "team" else set(PROJECT_PERMISSION_CODES)
+            allowed = (
+                TEAM_PERMISSION_CODES
+                if scope == "team"
+                else set(PROJECT_PERMISSION_CODES)
+            )
             if set(permissions) - set(allowed):
                 raise InvalidIdentityTagError
             # System tags may override their complete built-in permission set.
@@ -654,8 +669,13 @@ class IdentityTagPolicyService:
                 if is_system_team_tag:
                     # Removing a base-tag override is also a hierarchy edit
                     # and therefore creator-only, mirroring the upsert rule.
-                    operator_relation = TeamMemberService._operator_relation(operator, team)
-                    if operator_relation is None or operator_relation.base_tag != "creator":
+                    operator_relation = TeamMemberService._operator_relation(
+                        operator, team
+                    )
+                    if (
+                        operator_relation is None
+                        or operator_relation.base_tag != "creator"
+                    ):
                         raise NoPermissionError
                 target = policy.team_tags if is_system_team_tag else policy.project_tags
                 target.pop(code, None)

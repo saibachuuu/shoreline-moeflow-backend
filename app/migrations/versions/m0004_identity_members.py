@@ -241,7 +241,11 @@ def _json_safe(value):
         return {str(key): _json_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple, set)):
         values = [_json_safe(item) for item in value]
-        return sorted(values, key=lambda item: json.dumps(item, sort_keys=True)) if isinstance(value, set) else values
+        return (
+            sorted(values, key=lambda item: json.dumps(item, sort_keys=True))
+            if isinstance(value, set)
+            else values
+        )
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)
@@ -345,7 +349,9 @@ def _write_migration_artifacts(db, reports, summary, migration_time, batch_id):
             *report.get("project_member_keys", []),
         ]
         for member_key in dict.fromkeys(item for item in member_keys if item):
-            relation_by_member.setdefault(member_key, []).append(report.get("source_id"))
+            relation_by_member.setdefault(member_key, []).append(
+                report.get("source_id")
+            )
             reports_by_member.setdefault(member_key, []).append(report)
 
     project_rows = []
@@ -369,9 +375,7 @@ def _write_migration_artifacts(db, reports, summary, migration_time, batch_id):
                     "version": member.get("version"),
                     "input_source_ids": relation_by_member.get(member_key, []),
                     "source_ids": relation_by_member.get(member_key, []),
-                    "before": _artifact_before(
-                        reports_by_member.get(member_key, [])
-                    ),
+                    "before": _artifact_before(reports_by_member.get(member_key, [])),
                     "after": {
                         "status": member.get("status"),
                         "tags": member.get("tags", []),
@@ -401,13 +405,13 @@ def _write_migration_artifacts(db, reports, summary, migration_time, batch_id):
                     "version": member.get("version"),
                     "input_source_ids": relation_by_member.get(member_key, []),
                     "source_ids": relation_by_member.get(member_key, []),
-                    "before": _artifact_before(
-                        reports_by_member.get(member_key, [])
-                    ),
+                    "before": _artifact_before(reports_by_member.get(member_key, [])),
                     "after": {
                         "base_tag": member.get("base_tag"),
                         "tags": member.get("tags", []),
-                        "worker_qualifications": member.get("worker_qualifications", []),
+                        "worker_qualifications": member.get(
+                            "worker_qualifications", []
+                        ),
                         "aliases": member.get("aliases", []),
                         "status": member.get("status"),
                     },
@@ -485,13 +489,18 @@ def _write_migration_artifacts(db, reports, summary, migration_time, batch_id):
                     batch_id,
                 )
             )
-        if report.get("raw_workers_sha256") or report.get("mapped_workers") or any(
-            code.startswith("workers_") or code.startswith("worker_")
-            for code in issue_codes
+        if (
+            report.get("raw_workers_sha256")
+            or report.get("mapped_workers")
+            or any(
+                code.startswith("workers_") or code.startswith("worker_")
+                for code in issue_codes
+            )
         ):
             worker_rows.append(safe_report)
         if any(
-            code in {
+            code
+            in {
                 "duplicate_member_relation",
                 "duplicate_identity_member",
                 "invalid_identity_member",
@@ -605,7 +614,11 @@ def _merge_existing_documents(db, reports, summary, collection_name, *, team=Fal
         if team:
             team_id = _ref_id(document.get("team"))
             user_id = _ref_id(document.get("user"))
-            key = (team_id, user_id) if team_id is not None and user_id is not None else None
+            key = (
+                (team_id, user_id)
+                if team_id is not None and user_id is not None
+                else None
+            )
         else:
             subject = _subject_key(document)
             key = subject[0] if subject else None
@@ -828,13 +841,19 @@ def _upsert_project_member(db, values, tags):
         final_status = desired_status
     else:
         final_status = desired_status
-    create_time = _valid_datetime(existing.get("create_time")) or _valid_datetime(
-        values.get("create_time")
-    ) or MIGRATION_EPOCH
-    edit_time = _valid_datetime(existing.get("edit_time")) or _valid_datetime(
-        values.get("edit_time")
-    ) or create_time
-    version = _non_negative_int(existing.get("version"), _non_negative_int(values.get("version")))
+    create_time = (
+        _valid_datetime(existing.get("create_time"))
+        or _valid_datetime(values.get("create_time"))
+        or MIGRATION_EPOCH
+    )
+    edit_time = (
+        _valid_datetime(existing.get("edit_time"))
+        or _valid_datetime(values.get("edit_time"))
+        or create_time
+    )
+    version = _non_negative_int(
+        existing.get("version"), _non_negative_int(values.get("version"))
+    )
     update_values = {
         "project": values["project"],
         "display_name": _text(existing.get("display_name"))
@@ -871,9 +890,7 @@ def _upsert_project_member(db, values, tags):
 
 
 def _upsert_team_member(db, values, base_tag):
-    existing = db.team_member.find_one(
-        {"team": values["team"], "user": values["user"]}
-    )
+    existing = db.team_member.find_one({"team": values["team"], "user": values["user"]})
     if existing is None:
         values = {
             **values,
@@ -890,14 +907,17 @@ def _upsert_team_member(db, values, base_tag):
             "status": values.get("status")
             if values.get("status") in TEAM_MEMBER_STATUS_VALUES
             else "active",
-            "create_time": _valid_datetime(values.get("create_time")) or MIGRATION_EPOCH,
+            "create_time": _valid_datetime(values.get("create_time"))
+            or MIGRATION_EPOCH,
             "edit_time": _valid_datetime(values.get("edit_time"))
             or _valid_datetime(values.get("create_time"))
             or MIGRATION_EPOCH,
             "version": _non_negative_int(values.get("version")),
         }
         if values["status"] == "removed":
-            values["removed_time"] = _valid_datetime(values.get("removed_time")) or values["edit_time"]
+            values["removed_time"] = (
+                _valid_datetime(values.get("removed_time")) or values["edit_time"]
+            )
         db.team_member.insert_one(values)
         return
 
@@ -906,13 +926,21 @@ def _upsert_team_member(db, values, base_tag):
         base_tag = old_tag
     status = existing.get("status")
     if status not in TEAM_MEMBER_STATUS_VALUES:
-        status = values.get("status") if values.get("status") in TEAM_MEMBER_STATUS_VALUES else "active"
-    create_time = _valid_datetime(existing.get("create_time")) or _valid_datetime(
-        values.get("create_time")
-    ) or MIGRATION_EPOCH
-    edit_time = _valid_datetime(existing.get("edit_time")) or _valid_datetime(
-        values.get("edit_time")
-    ) or create_time
+        status = (
+            values.get("status")
+            if values.get("status") in TEAM_MEMBER_STATUS_VALUES
+            else "active"
+        )
+    create_time = (
+        _valid_datetime(existing.get("create_time"))
+        or _valid_datetime(values.get("create_time"))
+        or MIGRATION_EPOCH
+    )
+    edit_time = (
+        _valid_datetime(existing.get("edit_time"))
+        or _valid_datetime(values.get("edit_time"))
+        or create_time
+    )
     update_values = {
         "team": values["team"],
         "user": values["user"],
@@ -976,12 +1004,9 @@ def _ensure_index(collection, keys, name, *, unique=False, partial_filter=None):
             continue
         current_partial = index.get("partialFilterExpression")
         current_sparse = bool(index.get("sparse"))
-        matches = (
-            bool(index.get("unique")) == unique
-            and (
-                current_partial == partial_filter
-                or (use_sparse_fallback and current_sparse)
-            )
+        matches = bool(index.get("unique")) == unique and (
+            current_partial == partial_filter
+            or (use_sparse_fallback and current_sparse)
         )
         if matches and index_name == name:
             return
@@ -1081,7 +1106,13 @@ def _migrate_workers(db, project, reports, external_members, summary, fallback_t
         summary["workers_issue_count"] += 1
         return
     if not isinstance(parsed, dict):
-        _add_issue(reports, "project", project_id, "workers_root_not_object", type(parsed).__name__)
+        _add_issue(
+            reports,
+            "project",
+            project_id,
+            "workers_root_not_object",
+            type(parsed).__name__,
+        )
         summary["workers_issue_count"] += 1
         return
 
@@ -1095,12 +1126,16 @@ def _migrate_workers(db, project, reports, external_members, summary, fallback_t
             summary["workers_issue_count"] += 1
             continue
         if not isinstance(names, list):
-            _add_issue(reports, "project", project_id, "worker_names_not_array", raw_tag)
+            _add_issue(
+                reports, "project", project_id, "worker_names_not_array", raw_tag
+            )
             summary["workers_issue_count"] += 1
             continue
         for name in names:
             if not isinstance(name, str) or not name.strip():
-                _add_issue(reports, "project", project_id, "invalid_worker_name", repr(name))
+                _add_issue(
+                    reports, "project", project_id, "invalid_worker_name", repr(name)
+                )
                 summary["workers_issue_count"] += 1
                 continue
             display_name = name.strip()
@@ -1126,9 +1161,7 @@ def _migrate_workers(db, project, reports, external_members, summary, fallback_t
                     "source_tag": raw_tag,
                     "tag": target_tag,
                     "display_name": display_name,
-                    "project_member_key": (
-                        f"{project_id}:e:{member['external_id']}"
-                    ),
+                    "project_member_key": (f"{project_id}:e:{member['external_id']}"),
                 }
             )
             report.setdefault("project_member_keys", []).append(
@@ -1175,7 +1208,9 @@ def _record_join_process_event(
     if kind == "invitation":
         report["role"] = _role_snapshot(document.get("r"), role_codes)
     if status is None:
-        _add_issue(reports, scope, source_id, "unknown_join_process_status", document.get("s"))
+        _add_issue(
+            reports, scope, source_id, "unknown_join_process_status", document.get("s")
+        )
         summary["join_process_issue_count"] += 1
         return
     summary_key = (
@@ -1342,9 +1377,7 @@ def up(db):
     # A crashed or manually interrupted first attempt may have left partially
     # shaped identity documents.  Repair and merge those before creating the
     # logical unique indexes below.
-    _merge_existing_documents(
-        db, reports, summary, "project_member", team=False
-    )
+    _merge_existing_documents(db, reports, summary, "project_member", team=False)
     _merge_existing_documents(db, reports, summary, "team_member", team=True)
 
     users = {item["_id"]: _text(item.get("n")) for item in db.user.find({}, {"n": 1})}
@@ -1395,7 +1428,9 @@ def up(db):
         if mapped_tag:
             tags.add(mapped_tag)
         else:
-            _add_issue(reports, "project", project_id, "unmapped_project_role", role_code)
+            _add_issue(
+                reports, "project", project_id, "unmapped_project_role", role_code
+            )
             summary["custom_role_issue_count"] += 1
         key = (project_id, user_id)
         member = project_members.setdefault(
@@ -1445,9 +1480,7 @@ def up(db):
             team_by_id=team_by_id,
             users=users,
             role_codes=(
-                project_roles
-                if invitation_group_id in project_by_id
-                else team_roles
+                project_roles if invitation_group_id in project_by_id else team_roles
             ),
             summary=summary,
             fallback_time=migration_time,
@@ -1464,9 +1497,7 @@ def up(db):
             team_by_id=team_by_id,
             users=users,
             role_codes=(
-                project_roles
-                if application_group_id in project_by_id
-                else team_roles
+                project_roles if application_group_id in project_by_id else team_roles
             ),
             summary=summary,
             fallback_time=migration_time,
@@ -1556,10 +1587,22 @@ def up(db):
                 summary["owner_invalid_count"] += 1
                 summary["owner_issue_count"] += 1
             elif (project_id, current_owner) not in project_members:
-                _add_issue(reports, "project", project_id, "owner_not_in_creator_relations", current_owner)
+                _add_issue(
+                    reports,
+                    "project",
+                    project_id,
+                    "owner_not_in_creator_relations",
+                    current_owner,
+                )
                 summary["owner_issue_count"] += 1
             elif current_owner not in candidates:
-                _add_issue(reports, "project", project_id, "owner_not_in_creator_relations", current_owner)
+                _add_issue(
+                    reports,
+                    "project",
+                    project_id,
+                    "owner_not_in_creator_relations",
+                    current_owner,
+                )
                 summary["owner_issue_count"] += 1
             if len(candidates) > 1:
                 _add_issue(
@@ -1667,7 +1710,11 @@ def up(db):
                 reports, "team", team_id, relation, team_roles, summary
             )
         base_tag = TEAM_ROLE_TAGS.get(role_code, "member")
-        if role_code and role_code not in TEAM_ROLE_TAGS and role_code not in {"member", "senior", "beginner"}:
+        if (
+            role_code
+            and role_code not in TEAM_ROLE_TAGS
+            and role_code not in {"member", "senior", "beginner"}
+        ):
             _add_issue(reports, "team", team_id, "unmapped_team_role", role_code)
             summary["custom_role_issue_count"] += 1
         key = (team_id, user_id)
@@ -1722,7 +1769,9 @@ def up(db):
         active_count = db.project_member.count_documents(
             {"project": project_id, "status": "active"}
         )
-        db.project.update_one({"_id": project_id}, {"$set": {"m_uc": active_count}, "$unset": {"w": ""}})
+        db.project.update_one(
+            {"_id": project_id}, {"$set": {"m_uc": active_count}, "$unset": {"w": ""}}
+        )
     for team in teams:
         team_id = team["_id"]
         active_count = db.team_member.count_documents(
@@ -1756,8 +1805,12 @@ def up(db):
         "team_member_team_user_v1",
         unique=True,
     )
-    _ensure_index(db.project_member, [("project", 1), ("status", 1)], "project_member_status_v1")
-    _ensure_index(db.project_member, [("project", 1), ("tags", 1)], "project_member_tags_v1")
+    _ensure_index(
+        db.project_member, [("project", 1), ("status", 1)], "project_member_status_v1"
+    )
+    _ensure_index(
+        db.project_member, [("project", 1), ("tags", 1)], "project_member_tags_v1"
+    )
     _ensure_index(
         db.project_member,
         [("project", 1), ("display_name", 1)],
@@ -1825,13 +1878,14 @@ def verify(db):
         if project_id is None or has_user == has_external:
             return False
         expected_key = (
-            f"{project_id}:u:{user_id}"
-            if has_user
-            else f"{project_id}:e:{external_id}"
+            f"{project_id}:u:{user_id}" if has_user else f"{project_id}:e:{external_id}"
         )
         if member.get("ik") != expected_key:
             return False
-        if not isinstance(member.get("display_name"), str) or not member["display_name"].strip():
+        if (
+            not isinstance(member.get("display_name"), str)
+            or not member["display_name"].strip()
+        ):
             return False
         if len(member["display_name"]) > 140:
             # Runtime ProjectMember.display_name rejects over-limit names; a
@@ -1874,12 +1928,17 @@ def verify(db):
             not isinstance(member.get("tags"), list)
             or not isinstance(member.get("worker_qualifications"), list)
             or not isinstance(member.get("aliases"), list)
-            or any(not isinstance(tag, str) or not tag.strip() for tag in member["tags"])
+            or any(
+                not isinstance(tag, str) or not tag.strip() for tag in member["tags"]
+            )
             or any(
                 qualification not in set(WORKER_TAGS.values())
                 for qualification in member["worker_qualifications"]
             )
-            or any(not isinstance(alias, str) or not alias.strip() for alias in member["aliases"])
+            or any(
+                not isinstance(alias, str) or not alias.strip()
+                for alias in member["aliases"]
+            )
         ):
             return False
         if (
@@ -1954,8 +2013,8 @@ def verify(db):
         return False
     if db[REPORT_COLLECTION].count_documents({"_id": REPORT_SUMMARY_ID}) != 1:
         return False
-    summary = db[REPORT_COLLECTION].find_one({"_id": REPORT_SUMMARY_ID}).get(
-        "summary", {}
+    summary = (
+        db[REPORT_COLLECTION].find_one({"_id": REPORT_SUMMARY_ID}).get("summary", {})
     )
     if summary.get("owner_issue_count", 0):
         return False

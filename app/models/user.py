@@ -1,6 +1,5 @@
 import datetime
 import re
-import time
 from typing import NoReturn, Optional, Union
 
 from flask import current_app, g
@@ -65,10 +64,14 @@ class _IdentityRelation:
         return getattr(self.member, name)
 
     def delete(self):
-        raise RuntimeError("identity relations must be changed through identity services")
+        raise RuntimeError(
+            "identity relations must be changed through identity services"
+        )
 
     def save(self, *args, **kwargs):
-        raise RuntimeError("identity relations must be changed through identity services")
+        raise RuntimeError(
+            "identity relations must be changed through identity services"
+        )
 
 
 class User(Document):
@@ -341,7 +344,8 @@ class User(Document):
         members = TeamMember.objects(user=self, status="active")
         if role:
             role_codes = {
-                getattr(item, "system_code", item) for item in (role if isinstance(role, list) else [role])
+                getattr(item, "system_code", item)
+                for item in (role if isinstance(role, list) else [role])
             }
             # TeamMember intentionally stores only the normalized
             # creator/admin/member identities.  Keep the public legacy role
@@ -378,13 +382,19 @@ class User(Document):
         member = TeamMember.objects(user=self, team=team).first()
         if member is not None and member.status == "active":
             requested = getattr(role, "system_code", None)
-            if requested and requested in {"creator", "admin", "member"} and requested != member.base_tag:
+            if (
+                requested
+                and requested in {"creator", "admin", "member"}
+                and requested != member.base_tag
+            ):
                 member.base_tag = requested
                 member.version += 1
                 member.save()
             return _IdentityRelation(member, TeamRole.by_system_code(member.base_tag))
         role_code = getattr(role or team.default_role, "system_code", "member")
-        role_code = role_code if role_code in {"creator", "admin", "member"} else "member"
+        role_code = (
+            role_code if role_code in {"creator", "admin", "member"} else "member"
+        )
         needs_slot = member is None or member.status != "active"
         if needs_slot:
             TeamMemberService._reserve_capacity(team)
@@ -432,12 +442,17 @@ class User(Document):
         members = ProjectMember.objects(user=self, status="active")
         if role:
             role_codes = {
-                getattr(item, "system_code", item) for item in (role if isinstance(role, list) else [role])
+                getattr(item, "system_code", item)
+                for item in (role if isinstance(role, list) else [role])
             }
             role_tags = {
-                "creator": "creator", "admin": "admin", "coordinator": "proofreader",
-                "proofreader": "proofreader", "translator": "translator",
-                "picture_editor": "typesetter", "supporter": "translator",
+                "creator": "creator",
+                "admin": "admin",
+                "coordinator": "proofreader",
+                "proofreader": "proofreader",
+                "translator": "translator",
+                "picture_editor": "typesetter",
+                "supporter": "translator",
             }
             tags = {role_tags.get(code, code) for code in role_codes}
             members = [member for member in members if tags.intersection(member.tags)]
@@ -464,14 +479,22 @@ class User(Document):
         """获取与某个项目的关系"""
         from app.models.project_member import ProjectMember
 
-        member = ProjectMember.objects(user=self, project=project, status="active").first()
+        member = ProjectMember.objects(
+            user=self, project=project, status="active"
+        ).first()
         if member is None:
             return None
         tag_to_role = {
-            "creator": "creator", "admin": "admin", "proofreader": "proofreader",
-            "translator": "translator", "typesetter": "picture_editor",
+            "creator": "creator",
+            "admin": "admin",
+            "proofreader": "proofreader",
+            "translator": "translator",
+            "typesetter": "picture_editor",
         }
-        role_code = next((tag_to_role[tag] for tag in member.tags if tag in tag_to_role), "translator")
+        role_code = next(
+            (tag_to_role[tag] for tag in member.tags if tag in tag_to_role),
+            "translator",
+        )
         return _IdentityRelation(member, ProjectRole.by_system_code(role_code))
 
     def join_project(self, project, role=None):
@@ -488,9 +511,13 @@ class User(Document):
         if is_owner:
             role_code = "creator"
         tag_map = {
-            "creator": ["creator"], "admin": ["admin"], "coordinator": ["proofreader"],
-            "proofreader": ["proofreader"], "translator": ["translator"],
-            "picture_editor": ["typesetter"], "supporter": ["translator"],
+            "creator": ["creator"],
+            "admin": ["admin"],
+            "coordinator": ["proofreader"],
+            "proofreader": ["proofreader"],
+            "translator": ["translator"],
+            "picture_editor": ["typesetter"],
+            "supporter": ["translator"],
         }
         if member is not None and member.status == "active":
             if is_owner and member.tags != tag_map["creator"]:
@@ -504,7 +531,9 @@ class User(Document):
             member = ProjectMember(
                 project=project,
                 user=self,
-                display_name=ProjectMemberService.team_default_display_name(project, self),
+                display_name=ProjectMemberService.team_default_display_name(
+                    project, self
+                ),
                 tags=tag_map.get(role_code, []),
                 status="active",
             )
@@ -514,7 +543,11 @@ class User(Document):
             member.removed_time = None
             member.version += 1
         member.save()
-        project.update(set__user_count=ProjectMember.objects(project=project, status="active").count())
+        project.update(
+            set__user_count=ProjectMember.objects(
+                project=project, status="active"
+            ).count()
+        )
         return _IdentityRelation(member, ProjectRole.by_system_code(role_code))
 
     # =====加入流程=====
@@ -667,9 +700,10 @@ class User(Document):
             ):
                 raise MemberAlreadyOwnerError
         elif isinstance(group, Team):
-            if relation is not None and getattr(
-                relation.role, "system_code", None
-            ) == "creator":
+            if (
+                relation is not None
+                and getattr(relation.role, "system_code", None) == "creator"
+            ):
                 raise CreatorCanNotLeaveError
             from app.models.team_member import TeamMember
 
@@ -686,10 +720,20 @@ class User(Document):
             member.save()
             if isinstance(group, Team):
                 from app.models.team_member import TeamMember
-                group.update(set__user_count=TeamMember.objects(team=group, status="active").count())
+
+                group.update(
+                    set__user_count=TeamMember.objects(
+                        team=group, status="active"
+                    ).count()
+                )
             else:
                 from app.models.project_member import ProjectMember
-                group.update(set__user_count=ProjectMember.objects(project=group, status="active").count())
+
+                group.update(
+                    set__user_count=ProjectMember.objects(
+                        project=group, status="active"
+                    ).count()
+                )
 
     def get_role(self, group):
         """获取在group中的角色"""
@@ -711,9 +755,21 @@ class User(Document):
         if relation:
             role_code = getattr(role, "system_code", role)
             if isinstance(group, Team):
-                relation.member.base_tag = role_code if role_code in {"creator", "admin", "member"} else "member"
+                relation.member.base_tag = (
+                    role_code
+                    if role_code in {"creator", "admin", "member"}
+                    else "member"
+                )
             else:
-                tag_map = {"creator": ["creator"], "admin": ["admin"], "coordinator": ["proofreader"], "proofreader": ["proofreader"], "translator": ["translator"], "picture_editor": ["typesetter"], "supporter": ["translator"]}
+                tag_map = {
+                    "creator": ["creator"],
+                    "admin": ["admin"],
+                    "coordinator": ["proofreader"],
+                    "proofreader": ["proofreader"],
+                    "translator": ["translator"],
+                    "picture_editor": ["typesetter"],
+                    "supporter": ["translator"],
+                }
                 relation.member.tags = tag_map.get(role_code, [])
             relation.member.version += 1
             relation.member.save()
@@ -736,14 +792,29 @@ class User(Document):
         if isinstance(group, Team):
             if isinstance(permission, int):
                 team_permissions = {
-                    1: "ACCESS", 5: "DELETE", 10: "CHANGE", 1010: "AUTO_BECOME_PROJECT_ADMIN",
-                    101: "CHECK_USER", 105: "INVITE_USER", 110: "DELETE_USER",
-                    115: "CHANGE_USER_ROLE", 120: "CHANGE_USER_REMARK",
-                    1020: "CREATE_TERM_BANK", 1030: "ACCESS_TERM_BANK", 1040: "CHANGE_TERM_BANK",
-                    1050: "DELETE_TERM_BANK", 1060: "CREATE_TERM", 1070: "CHANGE_TERM",
-                    1080: "DELETE_TERM", 1090: "CREATE_PROJECT", 1100: "CREATE_PROJECT_SET",
-                    1110: "CHANGE_PROJECT_SET", 1120: "DELETE_PROJECT_SET", 1130: "USE_OCR_QUOTA",
-                    1140: "USE_MT_QUOTA", 1150: "INSIGHT",
+                    1: "ACCESS",
+                    5: "DELETE",
+                    10: "CHANGE",
+                    1010: "AUTO_BECOME_PROJECT_ADMIN",
+                    101: "CHECK_USER",
+                    105: "INVITE_USER",
+                    110: "DELETE_USER",
+                    115: "CHANGE_USER_ROLE",
+                    120: "CHANGE_USER_REMARK",
+                    1020: "CREATE_TERM_BANK",
+                    1030: "ACCESS_TERM_BANK",
+                    1040: "CHANGE_TERM_BANK",
+                    1050: "DELETE_TERM_BANK",
+                    1060: "CREATE_TERM",
+                    1070: "CHANGE_TERM",
+                    1080: "DELETE_TERM",
+                    1090: "CREATE_PROJECT",
+                    1100: "CREATE_PROJECT_SET",
+                    1110: "CHANGE_PROJECT_SET",
+                    1120: "DELETE_PROJECT_SET",
+                    1130: "USE_OCR_QUOTA",
+                    1140: "USE_MT_QUOTA",
+                    1150: "INSIGHT",
                 }
                 permission = f"team:{team_permissions.get(permission, permission)}"
             return IdentityPermissionService.team_snapshot(self, group).has(permission)

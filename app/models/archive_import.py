@@ -32,7 +32,9 @@ class ArchiveImportTask(Document):
     completed_pages = IntField(db_field="c", default=0)
     error = StringField(db_field="e", default="")
     zip_url = StringField(db_field="zu", default="")
-    dismissed = BooleanField(db_field="d", default=False)  # 用户已关闭该任务的提示(前端不再展示)
+    dismissed = BooleanField(
+        db_field="d", default=False
+    )  # 用户已关闭该任务的提示(前端不再展示)
     create_time = DateTimeField(db_field="ct", default=datetime.datetime.utcnow)
     update_time = DateTimeField(db_field="ut", default=datetime.datetime.utcnow)
 
@@ -63,7 +65,15 @@ class ArchiveImportTask(Document):
         return cls.objects(project=project).order_by("-id").first()
 
     def set_progress(
-        self, /, *, status=None, stage=None, total=None, completed=None, error=None, zip_url=None
+        self,
+        /,
+        *,
+        status=None,
+        stage=None,
+        total=None,
+        completed=None,
+        error=None,
+        zip_url=None,
     ) -> None:
         """小写频繁写一次的进度/状态更新（不触发 save 的并发覆盖）。"""
         fields = {}

@@ -255,7 +255,9 @@ identity.add_url_rule(
 identity.add_url_rule(
     "/teams/<team_id>/members/<member_id>/default-display-name",
     methods=["PATCH", "OPTIONS"],
-    view_func=TeamMemberDefaultDisplayNameAPI.as_view("team_member_default_display_name"),
+    view_func=TeamMemberDefaultDisplayNameAPI.as_view(
+        "team_member_default_display_name"
+    ),
 )
 identity.add_url_rule(
     "/teams/<team_id>/identity-tag-policy",

@@ -14,9 +14,7 @@ from mongoengine import (
 class IdentityOperation(Document):
     project = ReferenceField("Project", required=True)
     operation_id = StringField(required=True)
-    status = StringField(
-        required=True, choices=("processing", "succeeded", "failed")
-    )
+    status = StringField(required=True, choices=("processing", "succeeded", "failed"))
     result = DictField(default=dict)
     error_code = StringField(null=True)
     create_time = DateTimeField(default=datetime.datetime.utcnow)

@@ -66,7 +66,9 @@ class EditTeamSchema(DefaultSchema):
     # 含 id 的项按 id 更新/保留；不含 id 且含 key 的项为新增；未引用的旧 id 被删除。
     archive_api_keys = fields.List(fields.Dict())
     # 画廊归档导入的第三方档案 API 基址（可空字符串 = 使用系统默认）。
-    archive_api_url = fields.Str(allow_none=True, validate=[lambda v: len(v or "") <= 512])
+    archive_api_url = fields.Str(
+        allow_none=True, validate=[lambda v: len(v or "") <= 512]
+    )
 
     @validates_schema
     def verify_name(self, data, **kwargs):

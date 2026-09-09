@@ -195,10 +195,7 @@ class InvitationAPI(MoeAPIView):
             invitation.group, invitation.group.permission_cls.INVITE_USER
         ):
             raise NoPermissionError
-        if (
-            isinstance(invitation.group, Project)
-            and data.get("tags") is not None
-        ):
+        if isinstance(invitation.group, Project) and data.get("tags") is not None:
             # Current identity flow: update the invited member's position tags.
             # Positions carry no hierarchy levels, so the legacy level rules
             # do not apply; the tag policy (and worker qualification mode) is

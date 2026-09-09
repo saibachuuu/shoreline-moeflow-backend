@@ -122,7 +122,9 @@ def create_or_override_default_admin(app: Flask):
         )
         admin_user.admin = True
         admin_user.save()
-        logger.debug("已创建管理员 {}，请通过安全渠道完成首次登录配置".format(admin_user.email))
+        logger.debug(
+            "已创建管理员 {}，请通过安全渠道完成首次登录配置".format(admin_user.email)
+        )
     return admin_user
 
 

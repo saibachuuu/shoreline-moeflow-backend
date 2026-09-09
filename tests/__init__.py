@@ -47,6 +47,9 @@ def create_test_app():
         {
             "STORAGE_DOMAIN": "http://127.0.0.1:5000/storage/",
             "STORAGE_TYPE": "LOCAL_STORAGE",
+            "CONFIRM_EMAIL_WAIT_SECONDS": 1,
+            "RESET_EMAIL_WAIT_SECONDS": 1,
+            "RESET_PASSWORD_WAIT_SECONDS": 1,
         }
     )
     # The oss singleton was initialised with the pre-override config during

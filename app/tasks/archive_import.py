@@ -48,9 +48,7 @@ def canonicalize_archive_url(raw_url: str, gid: str) -> str | None:
     )
 
 
-def resolve_archive_url(
-    api_url: str, gid: str, token: str, api_key: str
-) -> str | None:
+def resolve_archive_url(api_url: str, gid: str, token: str, api_key: str) -> str | None:
     """NEW_API 契约：POST {api_url}/api/v1/parse，Bearer key。
 
     成功返回规范化的 hath.network 直链；任何非 200 / 含 error / 解析失败返回 None。
@@ -120,9 +118,8 @@ def _download_zip(zip_url: str, max_bytes: int) -> str:
         response.raise_for_status()
         final_url = urlparse(response.url)
         final_host = (final_url.hostname or "").lower().rstrip(".")
-        if (
-            final_url.scheme != "https"
-            or not re.fullmatch(r"[a-z0-9-]+\.hath\.network", final_host)
+        if final_url.scheme != "https" or not re.fullmatch(
+            r"[a-z0-9-]+\.hath\.network", final_host
         ):
             raise ValueError("归档下载重定向地址必须是 hath.network HTTPS 地址")
         downloaded = 0
@@ -132,9 +129,7 @@ def _download_zip(zip_url: str, max_bytes: int) -> str:
                     continue
                 downloaded += len(chunk)
                 if downloaded > max_bytes:
-                    raise ValueError(
-                        f"归档超过大小上限 {max_bytes} bytes"
-                    )
+                    raise ValueError(f"归档超过大小上限 {max_bytes} bytes")
                 out.write(chunk)
         return zip_path
     except Exception:
@@ -177,7 +172,10 @@ def _stream_test_zip(
                 with archive.open(entry) as member:
                     while chunk := member.read(1024 * 1024):
                         actual_bytes += len(chunk)
-                        if max_entry_bytes is not None and actual_bytes > max_entry_bytes:
+                        if (
+                            max_entry_bytes is not None
+                            and actual_bytes > max_entry_bytes
+                        ):
                             raise ValueError(
                                 f"归档单条目大小超过上限 {max_entry_bytes} bytes"
                             )
@@ -246,9 +244,13 @@ def archive_import_task(project_id, gid, token, task_id=None):
     if task_id:
         task = ArchiveImportTask.objects(id=task_id, project=project_id).first()
     else:
-        task = ArchiveImportTask.objects(
-            project=project_id, gid=str(gid), token=str(token)
-        ).order_by("-id").first()
+        task = (
+            ArchiveImportTask.objects(
+                project=project_id, gid=str(gid), token=str(token)
+            )
+            .order_by("-id")
+            .first()
+        )
     if task is None:
         return f"跳过：导入任务不存在 Project<{project_id}>"
     if task.status != ArchiveImportStatus.QUEUED:
@@ -262,16 +264,18 @@ def archive_import_task(project_id, gid, token, task_id=None):
     token = task.token
     project = Project.objects(id=project_id).first()
     if project is None:
-        task.set_progress(status=ArchiveImportStatus.FAILED, stage="项目不存在", error="项目不存在")
+        task.set_progress(
+            status=ArchiveImportStatus.FAILED, stage="项目不存在", error="项目不存在"
+        )
         return f"失败：项目不存在 {project_id}"
 
     config = celery.conf.app_config
     # 团队可配置自己的档案 API 基址（优先级高于全局）；留空则使用系统默认。
     team = project.team
     team_api_url = str(team.archive_api_url if team is not None else "").strip()
-    configured_api_url = team_api_url or str(
-        config.get("ARCHIVE_PROVIDER_API_URL", "")
-    ).strip()
+    configured_api_url = (
+        team_api_url or str(config.get("ARCHIVE_PROVIDER_API_URL", "")).strip()
+    )
     if not configured_api_url:
         task.set_progress(
             status=ArchiveImportStatus.FAILED,
@@ -335,7 +339,12 @@ def archive_import_task(project_id, gid, token, task_id=None):
         )
         return f"失败：归档解析失败 Project<{project_id}>"
 
-    task.set_progress(status=ArchiveImportStatus.DOWNLOADING, stage="下载归档", zip_url=zip_url, error="")
+    task.set_progress(
+        status=ArchiveImportStatus.DOWNLOADING,
+        stage="下载归档",
+        zip_url=zip_url,
+        error="",
+    )
     try:
         zip_path = _download_zip(zip_url, max_zip_bytes)
     except ValueError as exc:
@@ -345,7 +354,9 @@ def archive_import_task(project_id, gid, token, task_id=None):
         return f"失败：下载失败 {exc}"
     except requests.RequestException as exc:
         task.set_progress(
-            status=ArchiveImportStatus.FAILED, stage="下载失败", error=f"归档下载异常：{exc}"
+            status=ArchiveImportStatus.FAILED,
+            stage="下载失败",
+            error=f"归档下载异常：{exc}",
         )
         return f"失败：下载异常 {exc}"
     except OSError as exc:  # 临时目录缺失/磁盘问题等——必须落 FAILED 而不是毛糙崩溃
@@ -370,7 +381,12 @@ def archive_import_task(project_id, gid, token, task_id=None):
             raise ValueError("归档内没有可导入的图片")
 
         total = len(entries)
-        task.set_progress(status=ArchiveImportStatus.IMPORTING, stage="导入图片", total=total, completed=0)
+        task.set_progress(
+            status=ArchiveImportStatus.IMPORTING,
+            stage="导入图片",
+            total=total,
+            completed=0,
+        )
         imported = 0
         skipped = 0
         with zipfile.ZipFile(zip_path) as archive:
@@ -405,11 +421,15 @@ def archive_import_task(project_id, gid, token, task_id=None):
         )
         return f"成功：导入 {imported} 张图片 Project<{project_id}>"
     except ValueError as exc:
-        task.set_progress(status=ArchiveImportStatus.FAILED, stage="导入失败", error=str(exc))
+        task.set_progress(
+            status=ArchiveImportStatus.FAILED, stage="导入失败", error=str(exc)
+        )
         return f"失败：{exc}"
     except Exception as exc:  # 兜底：任何意外异常都必须落 FAILED，不能让任务停在中间态
         logger.exception("archive import crashed for project %s", project_id)
-        task.set_progress(status=ArchiveImportStatus.FAILED, stage="导入失败", error=str(exc))
+        task.set_progress(
+            status=ArchiveImportStatus.FAILED, stage="导入失败", error=str(exc)
+        )
         return f"失败：{exc}"
     finally:
         work_dir = os.path.dirname(zip_path)

@@ -31,12 +31,13 @@ PROJECT_MEMBER_INDEXES = (
 
 def _same_index(index, keys, options):
     return tuple(index.get("key", [])) == tuple(keys) and all(
-        index.get(option) == value
-        for option, value in options.items()
+        index.get(option) == value for option, value in options.items()
     )
 
 
-def _replace_index(collection, name, keys, options, fallback_keys=None, fallback_options=None):
+def _replace_index(
+    collection, name, keys, options, fallback_keys=None, fallback_options=None
+):
     if collection.__class__.__module__.startswith("mongomock") and fallback_keys:
         keys = fallback_keys
         options = fallback_options
@@ -90,8 +91,14 @@ def verify(db):
         name in indexes
         and _same_index(
             indexes[name],
-            fallback_keys if db.project_member.__class__.__module__.startswith("mongomock") and fallback_keys else keys,
-            fallback_options if db.project_member.__class__.__module__.startswith("mongomock") and fallback_keys else options,
+            fallback_keys
+            if db.project_member.__class__.__module__.startswith("mongomock")
+            and fallback_keys
+            else keys,
+            fallback_options
+            if db.project_member.__class__.__module__.startswith("mongomock")
+            and fallback_keys
+            else options,
         )
         for name, keys, options, fallback_keys, fallback_options in PROJECT_MEMBER_INDEXES
     )

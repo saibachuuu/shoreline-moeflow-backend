@@ -151,9 +151,7 @@ class TeamMember(Document):
         """
         user = None
         if self.user is not None:
-            user = (
-                user_map.get(str(self.user.id)) if user_map else None
-            ) or self.user
+            user = (user_map.get(str(self.user.id)) if user_map else None) or self.user
         return {
             "id": str(self.id),
             "team_id": str(self.team.id),

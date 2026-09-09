@@ -42,9 +42,7 @@ class ProjectMember(Document):
             [("project", 1), ("external_id", 1)],
             {
                 "unique": True,
-                "partialFilterExpression": {
-                    "external_id": {"$type": "string"}
-                },
+                "partialFilterExpression": {"external_id": {"$type": "string"}},
             },
             (
                 [("external_id", 1)],
@@ -174,8 +172,9 @@ class ProjectMember(Document):
         permissions = []
         if include_permissions and self.user is not None:
             permissions = sorted(
-                IdentityPermissionService.project_snapshot(self.user, self.project)
-                .effective_permissions
+                IdentityPermissionService.project_snapshot(
+                    self.user, self.project
+                ).effective_permissions
             )
         owner = (
             self.user is not None

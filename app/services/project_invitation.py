@@ -24,7 +24,15 @@ class ProjectInvitationAdapter:
 
     @classmethod
     def _ensure_projection(
-        cls, project, user, *, tags, display_name, status, operator=None, request_id=None
+        cls,
+        project,
+        user,
+        *,
+        tags,
+        display_name,
+        status,
+        operator=None,
+        request_id=None,
     ):
         from app.models.project_member import ProjectMember
         from app.services.project_member import _member_state, ProjectMemberService
@@ -123,11 +131,15 @@ class ProjectInvitationAdapter:
         # The new collection may have been introduced after an old pending
         # invitation was created.  Reuse that invitation instead of asking the
         # legacy method to create a duplicate and then translating its error.
-        invitation = Invitation.objects(
-            user=user,
-            group=project,
-            status=InvitationStatus.PENDING,
-        ).order_by("-id").first()
+        invitation = (
+            Invitation.objects(
+                user=user,
+                group=project,
+                status=InvitationStatus.PENDING,
+            )
+            .order_by("-id")
+            .first()
+        )
 
         if invitation is None:
             try:
@@ -147,25 +159,37 @@ class ProjectInvitationAdapter:
                         status=InvitationStatus.PENDING,
                     ).save()
                 except NotUniqueError:
-                    invitation = Invitation.objects(
-                        user=user,
-                        group=project,
-                        status=InvitationStatus.PENDING,
-                    ).order_by("-id").first()
+                    invitation = (
+                        Invitation.objects(
+                            user=user,
+                            group=project,
+                            status=InvitationStatus.PENDING,
+                        )
+                        .order_by("-id")
+                        .first()
+                    )
             except InvitationAlreadyExistError:
                 # Another request won the invitation race.  The pending record
                 # is the source of truth for the projection.
-                invitation = Invitation.objects(
-                    user=user,
-                    group=project,
-                    status=InvitationStatus.PENDING,
-                ).order_by("-id").first()
+                invitation = (
+                    Invitation.objects(
+                        user=user,
+                        group=project,
+                        status=InvitationStatus.PENDING,
+                    )
+                    .order_by("-id")
+                    .first()
+                )
             else:
-                invitation = Invitation.objects(
-                    user=user,
-                    group=project,
-                    status=InvitationStatus.PENDING,
-                ).order_by("-id").first()
+                invitation = (
+                    Invitation.objects(
+                        user=user,
+                        group=project,
+                        status=InvitationStatus.PENDING,
+                    )
+                    .order_by("-id")
+                    .first()
+                )
 
         # ``User.invite`` may join the user immediately (for example when the
         # user already belongs to the project team).  No Invitation object is
@@ -195,9 +219,7 @@ class ProjectInvitationAdapter:
         )
 
     @classmethod
-    def update_pending_tags(
-        cls, invitation, tags, *, operator=None, request_id=None
-    ):
+    def update_pending_tags(cls, invitation, tags, *, operator=None, request_id=None):
         """Update the position tags of a pending project invitation.
 
         The legacy ``Invitation.role`` stays as the compatibility argument;
@@ -275,7 +297,13 @@ class ProjectInvitationAdapter:
 
     @classmethod
     def project_active(
-        cls, invitation_or_relation, *, tags=None, display_name=None, operator=None, request_id=None
+        cls,
+        invitation_or_relation,
+        *,
+        tags=None,
+        display_name=None,
+        operator=None,
+        request_id=None,
     ):
         if isinstance(invitation_or_relation, Invitation):
             project = invitation_or_relation.group

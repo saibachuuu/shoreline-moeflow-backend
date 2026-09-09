@@ -43,4 +43,3 @@ def record_audit(
         permission_sources=permission_sources or {},
     )
     return event.save()
-

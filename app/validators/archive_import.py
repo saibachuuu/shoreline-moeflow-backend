@@ -59,7 +59,9 @@ def normalize_archive_api_url(
         for item in allowed_hosts
         if str(item).strip()
     )
-    host_allowed = any(host == item or host.endswith("." + item) for item in normalized_hosts)
+    host_allowed = any(
+        host == item or host.endswith("." + item) for item in normalized_hosts
+    )
     if require_allowlist and not host_allowed:
         raise ValueError(lazy_gettext("团队归档 API 地址不在站点允许的主机白名单中"))
     return value.rstrip("/")

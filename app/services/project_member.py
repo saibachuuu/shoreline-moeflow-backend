@@ -196,7 +196,11 @@ class ProjectMemberService:
         always pre-fills for a new member -- the user's team-level default
         display name is used, falling back to the site name itself.
         """
-        if display_name is not None and display_name.strip() and display_name.strip() != user.name:
+        if (
+            display_name is not None
+            and display_name.strip()
+            and display_name.strip() != user.name
+        ):
             return cls._display_name(display_name)
         return cls._display_name(cls.team_default_display_name(project, user))
 
@@ -244,20 +248,23 @@ class ProjectMemberService:
 
     @classmethod
     def _add_external(
-        cls, project, operator, display_name, tags, *, request_id=None, operation_id=None
+        cls,
+        project,
+        operator,
+        display_name,
+        tags,
+        *,
+        request_id=None,
+        operation_id=None,
     ):
         if not cls._is_manager(operator, project) and tags:
             raise NoPermissionError
-        tags = cls._validate_tags(
-            operator, project, None, tags, external=True
-        )
+        tags = cls._validate_tags(operator, project, None, tags, external=True)
 
         # The operation record is finalized after the member side effect.  A
         # worker crash in between must be able to find and reuse that member
         # instead of creating a second external identity on retry.
-        operation_external_id = cls._external_id_for_operation(
-            project, operation_id
-        )
+        operation_external_id = cls._external_id_for_operation(project, operation_id)
         if operation_external_id:
             existing = ProjectMember.objects(
                 project=project, external_id=operation_external_id
@@ -267,7 +274,10 @@ class ProjectMemberService:
                 return existing
 
         cls._check_add_state(project, external=True)
-        if ProjectMember.objects(project=project, status="active").count() >= project.max_user:
+        if (
+            ProjectMember.objects(project=project, status="active").count()
+            >= project.max_user
+        ):
             raise MemberCapacityReachedError
         member = ProjectMember(
             project=project,
@@ -332,9 +342,10 @@ class ProjectMemberService:
         # Capacity is checked whenever this operation adds one active member,
         # including restoring a soft-removed registered user (both the brand
         # new member and the removal-recovery paths must honor max_user).
-        if ProjectMember.objects(
-            project=project, status="active"
-        ).count() >= project.max_user:
+        if (
+            ProjectMember.objects(project=project, status="active").count()
+            >= project.max_user
+        ):
             raise MemberCapacityReachedError
         display_name = cls._add_user_display_name(project, user, display_name)
 
@@ -416,9 +427,7 @@ class ProjectMemberService:
                 raise NoPermissionError
             expected = payload.get("expected_member_version")
             if not isinstance(expected, int):
-                raise InvalidIdentityRequestError(
-                    "expected_member_version is required"
-                )
+                raise InvalidIdentityRequestError("expected_member_version is required")
             if member.version != expected:
                 raise ProjectMemberVersionConflictError
             user_id = payload.get("user_id")
@@ -435,7 +444,10 @@ class ProjectMemberService:
                         "external_id does not match the member"
                     )
             cls._check_add_state(project, external=member.user is None)
-            if ProjectMember.objects(project=project, status="active").count() >= project.max_user:
+            if (
+                ProjectMember.objects(project=project, status="active").count()
+                >= project.max_user
+            ):
                 raise MemberCapacityReachedError
             display_name = cls._display_name(
                 payload.get("display_name"), fallback=member.display_name
@@ -525,7 +537,11 @@ class ProjectMemberService:
             raise NoPermissionError
         if member.user is None and not manager:
             raise NoPermissionError
-        if member.user is not None and member.user == operator and member.status != "active":
+        if (
+            member.user is not None
+            and member.user == operator
+            and member.status != "active"
+        ):
             raise NoPermissionError
 
         if member.user is not None and project.owner_user == member.user:
@@ -544,8 +560,7 @@ class ProjectMemberService:
                 )
             else:
                 owner_tags = (
-                    member.user is not None
-                    and project.owner_user == member.user
+                    member.user is not None and project.owner_user == member.user
                 )
                 tags = cls._validate_tags(
                     operator,
@@ -560,9 +575,7 @@ class ProjectMemberService:
             # covers admins (and an owner dropping their own admin tag).
             if member.user is not None and member.user == operator:
                 own_identity_tags = {
-                    tag
-                    for tag in ("creator", "admin")
-                    if tag in before.get("tags", [])
+                    tag for tag in ("creator", "admin") if tag in before.get("tags", [])
                 }
                 if own_identity_tags and not own_identity_tags.issubset(set(tags)):
                     raise ProtectedIdentityTagError
@@ -610,12 +623,18 @@ class ProjectMemberService:
         if not cls._is_manager(operator, project):
             raise NoPermissionError
         member = cls.get(project, member_id)
-        expected = payload.get("expected_version") if isinstance(payload, dict) else None
+        expected = (
+            payload.get("expected_version") if isinstance(payload, dict) else None
+        )
         if not isinstance(expected, int):
             raise InvalidIdentityRequestError("expected_version is required")
         if member.version != expected:
             raise ProjectMemberVersionConflictError
-        if member.status != "active" or member.user is not None or not member.external_id:
+        if (
+            member.status != "active"
+            or member.user is not None
+            or not member.external_id
+        ):
             raise InvalidIdentityRequestError("only an active external member can bind")
         user = cls._find_user(payload.get("user_id"))
         if user is None:
@@ -679,9 +698,7 @@ class ProjectMemberService:
             try:
                 source.save(save_condition={"version": expected_source + 1})
             except SaveConditionError:
-                logger.warning(
-                    "merge rollback failed for source member %s", source.id
-                )
+                logger.warning("merge rollback failed for source member %s", source.id)
         if target_saved:
             target.display_name = target_snapshot["display_name"]
             target.tags = list(target_snapshot["tags"])
@@ -691,9 +708,7 @@ class ProjectMemberService:
             try:
                 target.save(save_condition={"version": expected_target + 1})
             except SaveConditionError:
-                logger.warning(
-                    "merge rollback failed for target member %s", target.id
-                )
+                logger.warning("merge rollback failed for target member %s", target.id)
 
     @classmethod
     def merge(cls, project, source_member_id, operator, payload, *, request_id=None):
@@ -722,11 +737,22 @@ class ProjectMemberService:
             )
         if source.version != expected_source or target.version != expected_target:
             raise ProjectMemberVersionConflictError
-        if source.status != "active" or source.user is not None or not source.external_id:
-            raise InvalidIdentityRequestError("source must be an active external member")
+        if (
+            source.status != "active"
+            or source.user is not None
+            or not source.external_id
+        ):
+            raise InvalidIdentityRequestError(
+                "source must be an active external member"
+            )
         if target.status not in ("active", "invited") or target.user is None:
-            raise InvalidIdentityRequestError("target must be a registered project member")
-        if IdentityPermissionService.is_active_team_member(target.user, project.team) is None:
+            raise InvalidIdentityRequestError(
+                "target must be a registered project member"
+            )
+        if (
+            IdentityPermissionService.is_active_team_member(target.user, project.team)
+            is None
+        ):
             raise NoPermissionError
 
         display_name = cls._display_name(
@@ -835,12 +861,12 @@ class ProjectMemberService:
                 return any(needle in normalize_search_text(value) for value in values)
 
             members = [member for member in members if matches(member)]
-        return sorted(members, key=lambda item: (item.display_name.casefold(), str(item.id)))
+        return sorted(
+            members, key=lambda item: (item.display_name.casefold(), str(item.id))
+        )
 
     @classmethod
-    def member_summaries(
-        cls, projects, *, compact=False
-    ) -> dict[str, list[dict]]:
+    def member_summaries(cls, projects, *, compact=False) -> dict[str, list[dict]]:
         """Load list-page summaries with one member query and one user query.
 
         Invited (pending) members are included so an invited-only role renders as
@@ -981,9 +1007,11 @@ class ProjectMemberService:
             raise InvalidIdentityRequestError("invalid project search mode")
         if tag is not None:
             tag = tag.strip()
-            if not tag or IdentityPermissionService.tag_definition(
-                team, "project", tag
-            ) is None:
+            if (
+                not tag
+                or IdentityPermissionService.tag_definition(team, "project", tag)
+                is None
+            ):
                 raise InvalidIdentityTagError
 
         def status_values(value):
@@ -1055,8 +1083,7 @@ class ProjectMemberService:
                     for item in User.objects(name_search__icontains=worker_needle)
                 }
                 subject_ids.update(
-                    str(item.id)
-                    for item in User.objects(aliases_search=worker_needle)
+                    str(item.id) for item in User.objects(aliases_search=worker_needle)
                 )
                 subject_ids.update(
                     str(item)
@@ -1080,11 +1107,7 @@ class ProjectMemberService:
                     {"_id": {"$in": display_matches}},
                     {
                         "user": {
-                            "$in": [
-                                ObjectId(value)
-                                for value in subject_ids
-                                if value
-                            ]
+                            "$in": [ObjectId(value) for value in subject_ids if value]
                         }
                     },
                 ]
@@ -1096,8 +1119,7 @@ class ProjectMemberService:
             matched_project_ids = {
                 reference_id
                 for reference_id in (
-                    _reference_id(value)
-                    for value in matched_project_refs
+                    _reference_id(value) for value in matched_project_refs
                 )
                 if reference_id is not None
             }
@@ -1147,8 +1169,7 @@ class ProjectMemberService:
             )
             last_touched = stored.edit_time or stored.create_time
             stale = (
-                stored.lease_expires_at is not None
-                and stored.lease_expires_at <= now
+                stored.lease_expires_at is not None and stored.lease_expires_at <= now
             ) or (
                 stored.lease_expires_at is None
                 and last_touched is not None
@@ -1186,9 +1207,7 @@ class ProjectMemberService:
             stored.reload()
             return stored, True, claim_token
 
-        claimed = IdentityOperation.objects(
-            id=stored.id, status="failed"
-        ).update_one(
+        claimed = IdentityOperation.objects(id=stored.id, status="failed").update_one(
             set__status="processing",
             set__error_code=None,
             set__result={},
@@ -1205,9 +1224,7 @@ class ProjectMemberService:
         return stored, True, claim_token
 
     @classmethod
-    def _finish_operation(
-        cls, stored, claim_token, *, status, result, error_code=None
-    ):
+    def _finish_operation(cls, stored, claim_token, *, status, result, error_code=None):
         """Persist a result only if this worker still owns the lease."""
 
         updated = IdentityOperation.objects(
@@ -1234,7 +1251,9 @@ class ProjectMemberService:
 
     @classmethod
     def apply_changes(cls, project, operator, payload, *, request_id=None) -> dict:
-        if not isinstance(payload, dict) or not isinstance(payload.get("operations"), list):
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get("operations"), list
+        ):
             raise InvalidIdentityRequestError("operations must be an array")
         operations = payload["operations"]
         cls._require_operator(operator, project)

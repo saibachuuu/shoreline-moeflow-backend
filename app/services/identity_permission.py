@@ -64,14 +64,30 @@ def normalize_permission(permission: Any) -> str:
             return permission
         return f"project:{permission}"
     legacy_project_permissions = {
-        1: "ACCESS", 5: "DELETE", 10: "CHANGE", 101: "CHECK_USER",
-        105: "INVITE_USER", 110: "DELETE_USER", 115: "CHANGE_USER_ROLE",
-        120: "CHANGE_USER_REMARK", 1010: "COMPLETE_PROJECT", 1020: "ADD_FILE",
-        1030: "MOVE_FILE", 1040: "RENAME_FILE", 1050: "DELETE_FILE",
-        1060: "OUTPUT_TRA", 1080: "ADD_LABEL", 1090: "MOVE_LABEL",
-        1100: "DELETE_LABEL", 1110: "ADD_TRA", 1120: "DELETE_TRA",
-        1130: "PROOFREAD_TRA", 1140: "CHECK_TRA", 1150: "ADD_TARGET",
-        1160: "CHANGE_TARGET", 1170: "DELETE_TARGET",
+        1: "ACCESS",
+        5: "DELETE",
+        10: "CHANGE",
+        101: "CHECK_USER",
+        105: "INVITE_USER",
+        110: "DELETE_USER",
+        115: "CHANGE_USER_ROLE",
+        120: "CHANGE_USER_REMARK",
+        1010: "COMPLETE_PROJECT",
+        1020: "ADD_FILE",
+        1030: "MOVE_FILE",
+        1040: "RENAME_FILE",
+        1050: "DELETE_FILE",
+        1060: "OUTPUT_TRA",
+        1080: "ADD_LABEL",
+        1090: "MOVE_LABEL",
+        1100: "DELETE_LABEL",
+        1110: "ADD_TRA",
+        1120: "DELETE_TRA",
+        1130: "PROOFREAD_TRA",
+        1140: "CHECK_TRA",
+        1150: "ADD_TARGET",
+        1160: "CHANGE_TARGET",
+        1170: "DELETE_TARGET",
     }
     if permission in legacy_project_permissions:
         return f"project:{legacy_project_permissions[permission]}"
@@ -123,9 +139,7 @@ class PermissionSnapshot:
     effective_permissions: frozenset[str] = frozenset()
     permission_sources: dict[str, tuple[str, ...]] = field(default_factory=dict)
     is_owner: bool = False
-    generated_at: datetime.datetime = field(
-        default_factory=datetime.datetime.utcnow
-    )
+    generated_at: datetime.datetime = field(default_factory=datetime.datetime.utcnow)
 
     def has(self, permission: Any) -> bool:
         return normalize_permission(permission) in self.effective_permissions
@@ -186,9 +200,7 @@ class IdentityPermissionService:
 
     @classmethod
     def tag_definition(cls, team, scope: str, tag: str) -> dict | None:
-        return cls._tag_definition_with_policy(
-            team, scope, tag, cls._policy(team)
-        )
+        return cls._tag_definition_with_policy(team, scope, tag, cls._policy(team))
 
     @staticmethod
     def _tag_definition_with_policy(
@@ -234,9 +246,7 @@ class IdentityPermissionService:
     ) -> dict[str, set[str]]:
         result: dict[str, set[str]] = {}
         for tag in normalize_tag_list(tags):
-            definition = cls._tag_definition_with_policy(
-                team, scope, tag, policy
-            )
+            definition = cls._tag_definition_with_policy(team, scope, tag, policy)
             if definition is None:
                 continue
             result[tag] = set(definition.get("permissions", []))
@@ -258,9 +268,7 @@ class IdentityPermissionService:
         )
         sources: dict[str, list[str]] = {}
         for permission in permissions:
-            sources.setdefault(permission, []).append(
-                f"team_base:{relation.base_tag}"
-            )
+            sources.setdefault(permission, []).append(f"team_base:{relation.base_tag}")
         for tag, tag_permissions in cls.team_permissions_for_tags(
             team, relation.tags
         ).items():
@@ -340,9 +348,7 @@ class IdentityPermissionService:
                 ).items():
                     for permission in tag_permissions:
                         permissions.add(permission)
-                        sources.setdefault(permission, []).append(
-                            f"project_tag:{tag}"
-                        )
+                        sources.setdefault(permission, []).append(f"project_tag:{tag}")
 
         owner = (
             project.owner_user is not None
@@ -418,9 +424,7 @@ class IdentityPermissionService:
 
         if policies is None and team_ids:
             policies = IdentityTagPolicy.objects(team__in=list(team_ids))
-        policies_by_team = {
-            str(policy.team.id): policy for policy in (policies or ())
-        }
+        policies_by_team = {str(policy.team.id): policy for policy in (policies or ())}
 
         return {
             str(project.pk): cls._project_snapshot_with_context(
@@ -538,7 +542,10 @@ class IdentityPermissionService:
             definition = cls.tag_definition(project.team, "project", tag)
             if definition is None:
                 continue
-            if not definition.get("assignable", True) and tag not in {"creator", "admin"}:
+            if not definition.get("assignable", True) and tag not in {
+                "creator",
+                "admin",
+            }:
                 raise InvalidIdentityTagError
         if "admin" in normalized and not (
             cls.is_project_creator(operator, project)
@@ -557,9 +564,8 @@ class IdentityPermissionService:
             # permission set. They may add a worker tag to their own identity
             # without maintaining a separate qualification list; ordinary
             # registered users remain qualification-gated.
-            privileged_self = (
-                target_user == operator
-                and cls.can_project(target_user, project, "project:MANAGE_MEMBERS")
+            privileged_self = target_user == operator and cls.can_project(
+                target_user, project, "project:MANAGE_MEMBERS"
             )
             if relation is None and not privileged_self:
                 raise TeamQualificationRequiredError

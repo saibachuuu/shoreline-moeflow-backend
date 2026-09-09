@@ -185,15 +185,8 @@ class TeamMemberListAPI(MoeAPIView):
         from app.models.user import User
 
         paged_members = members[page.skip : page.skip + page.limit]
-        user_ids = {
-            member.user.id
-            for member in members
-            if member.user is not None
-        }
-        user_map = {
-            str(user.id): user
-            for user in User.objects(id__in=list(user_ids))
-        }
+        user_ids = {member.user.id for member in members if member.user is not None}
+        user_map = {str(user.id): user for user in User.objects(id__in=list(user_ids))}
         data = [member.to_api(user_map=user_map) for member in paged_members]
         return page.set_data(data=data, count=len(members))
 
@@ -244,7 +237,9 @@ class TeamMemberAliasesAPI(MoeAPIView):
             member_id,
             self.current_user,
             data.get("aliases") if isinstance(data, dict) else None,
-            expected_version=data.get("expected_version") if isinstance(data, dict) else None,
+            expected_version=data.get("expected_version")
+            if isinstance(data, dict)
+            else None,
             request_id=_request_id(),
         )
         return {"member": member.to_api()}
@@ -260,7 +255,9 @@ class TeamMemberDefaultDisplayNameAPI(MoeAPIView):
             member_id,
             self.current_user,
             data.get("default_display_name") if isinstance(data, dict) else None,
-            expected_version=data.get("expected_version") if isinstance(data, dict) else None,
+            expected_version=data.get("expected_version")
+            if isinstance(data, dict)
+            else None,
             request_id=_request_id(),
         )
         return {"member": member.to_api()}

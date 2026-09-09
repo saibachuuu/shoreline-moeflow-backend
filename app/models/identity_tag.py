@@ -74,18 +74,23 @@ PROJECT_PERMISSION_NAMES = (
     "DELETE_USER",
     "MANAGE_MEMBERS",
 )
-PROJECT_PERMISSION_CODES = tuple(
-    f"project:{name}" for name in PROJECT_PERMISSION_NAMES
-)
+PROJECT_PERMISSION_CODES = tuple(f"project:{name}" for name in PROJECT_PERMISSION_NAMES)
 
-_FILE_PERMISSIONS = frozenset(
-    ("ADD_FILE", "MOVE_FILE", "RENAME_FILE", "DELETE_FILE")
-)
+_FILE_PERMISSIONS = frozenset(("ADD_FILE", "MOVE_FILE", "RENAME_FILE", "DELETE_FILE"))
 _TRANSLATION_PERMISSIONS = frozenset(
     ("OUTPUT_TRA", "ADD_LABEL", "MOVE_LABEL", "DELETE_LABEL", "ADD_TRA")
 )
 _PROOFREAD_PERMISSIONS = frozenset(
-    ("OUTPUT_TRA", "ADD_LABEL", "MOVE_LABEL", "DELETE_LABEL", "ADD_TRA", "DELETE_TRA", "PROOFREAD_TRA", "CHECK_TRA")
+    (
+        "OUTPUT_TRA",
+        "ADD_LABEL",
+        "MOVE_LABEL",
+        "DELETE_LABEL",
+        "ADD_TRA",
+        "DELETE_TRA",
+        "PROOFREAD_TRA",
+        "CHECK_TRA",
+    )
 )
 _TRANSLATOR_PERMISSIONS = frozenset(
     ("OUTPUT_TRA", "ADD_LABEL", "MOVE_LABEL", "DELETE_LABEL", "ADD_TRA", "DELETE_TRA")
@@ -100,9 +105,7 @@ def _project_permissions(*names: str) -> frozenset[str]:
 
 
 PROJECT_TAG_PERMISSIONS = {
-    "creator": _project_permissions(
-        *PROJECT_PERMISSION_NAMES
-    ),
+    "creator": _project_permissions(*PROJECT_PERMISSION_NAMES),
     "admin": _project_permissions(
         "ACCESS",
         "CHANGE",

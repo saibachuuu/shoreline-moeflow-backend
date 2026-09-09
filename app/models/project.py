@@ -417,8 +417,8 @@ class Project(GroupMixin, Document):
         # search projection synchronized without reloading and saving the doc.
         for name_key in ("name", "set__name"):
             if name_key in kwargs:
-                kwargs[name_key.replace("name", "name_search")] = (
-                    normalize_search_text(kwargs[name_key])
+                kwargs[name_key.replace("name", "name_search")] = normalize_search_text(
+                    kwargs[name_key]
                 )
         return super().update(**kwargs)
 
@@ -897,9 +897,9 @@ class Project(GroupMixin, Document):
             for relation in team_relations:
                 base_tag = relation.base_tag
                 if base_tag not in converted_roles:
-                    converted_roles[base_tag] = (
-                        TeamRole.by_system_code(base_tag).convert_to_project_role()
-                    )
+                    converted_roles[base_tag] = TeamRole.by_system_code(
+                        base_tag
+                    ).convert_to_project_role()
                 if converted_roles[base_tag] is not None:
                     inherited_admin_team_ids.add(str(relation.team.id))
             if any(value is not None for value in converted_roles.values()):
@@ -960,7 +960,10 @@ class Project(GroupMixin, Document):
             if project_role_data:
                 project_data["role"] = project_role_data
             else:
-                if role_from_team_data and str(project.id) not in auto_become_project_ids:
+                if (
+                    role_from_team_data
+                    and str(project.id) not in auto_become_project_ids
+                ):
                     project_data["role"] = role_from_team_data
                     project_data["auto_become_project_admin"] = True
             if include_member_summary:
@@ -1072,9 +1075,11 @@ class Project(GroupMixin, Document):
         if not lines:
             return None
         # x=0.5, y=0.5 页面正中心；position_type=2 框外
-        return "----------------[0]----------------[0.5,0.5,2]\r\n" + "\r\n".join(
-            lines
-        ) + "\r\n"
+        return (
+            "----------------[0]----------------[0.5,0.5,2]\r\n"
+            + "\r\n".join(lines)
+            + "\r\n"
+        )
 
     def to_output_json(self):
         data = {
@@ -1132,8 +1137,8 @@ class Project(GroupMixin, Document):
             project_id = str(self.id)
             if _batch_context is not None:
                 role = _batch_context.get("roles", {}).get(project_id)
-                auto_become_project_admin = (
-                    project_id in _batch_context.get("auto_become_project_ids", ())
+                auto_become_project_admin = project_id in _batch_context.get(
+                    "auto_become_project_ids", ()
                 )
                 snapshot = _batch_context.get("snapshots", {}).get(project_id)
             else:

@@ -103,6 +103,7 @@ class ProjectAPI(MoeAPIView):
             "project": project_data,
         }
 
+
 class ProjectTargetListAPI(MoeAPIView):
     @token_required
     @fetch_model(Project)
