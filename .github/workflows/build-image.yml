@@ -6,8 +6,6 @@ on:
   push:
     tags:
       - "v**"
-    branches:
-      - main
 
 env:
   REGISTRY: ghcr.io
@@ -37,11 +35,9 @@ jobs:
         uses: docker/metadata-action@v5.5.1
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: | # almost same as action default
-            type=ref,event=pr
+          tags: |
             type=ref,event=tag,pattern={{raw}}
-            # type=ref,event=workflow_dispatch
-            type=sha,event=workflow_dispatch
+            type=ref,event=pr
 
       - name: Setup docker buildx
         uses: docker/setup-buildx-action@v2
@@ -50,7 +46,7 @@ jobs:
         uses: docker/build-push-action@v6.9.0
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
           build-args:
             MOEFLOW_BUILD_ID=${{ github.repository }}:${{ github.ref }}:${{ github.sha }}
           cache-from:
