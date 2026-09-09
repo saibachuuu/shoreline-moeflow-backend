@@ -115,7 +115,15 @@ class MeInfoAPI(MoeAPIView):
         )
         aliases_provided = "aliases" in data
         aliases = data.pop("aliases", None)
+        default_display_name_provided = "default_display_name" in data
+        default_display_name = data.pop("default_display_name", None)
         self.current_user.name = data["name"]
+        if default_display_name_provided:
+            self.current_user.default_display_name = (
+                default_display_name.strip()
+                if isinstance(default_display_name, str)
+                else ""
+            )
         self.current_user.signature = data["signature"]
         self.current_user.locale = data["locale"]
         if aliases_provided:
@@ -125,6 +133,9 @@ class MeInfoAPI(MoeAPIView):
                 self.current_user,
                 self.current_user,
                 aliases,
+                default_display_name=self.current_user.default_display_name
+                if default_display_name_provided
+                else None,
                 request_id=request.headers.get("X-Request-ID")
                 or request.headers.get("Idempotency-Key"),
             )

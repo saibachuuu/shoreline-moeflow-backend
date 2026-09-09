@@ -82,6 +82,7 @@ class ChangeInfoSchema(DefaultSchema):
     # Optional for existing API clients; the profile form sends it together
     # with the other fields so the whole profile can be saved in one request.
     aliases = fields.List(fields.Str(), required=False)
+    default_display_name = fields.Str(required=False, allow_none=True)
 
     @validates_schema
     def verify_name(self, data, **kwargs):

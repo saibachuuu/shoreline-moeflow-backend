@@ -1494,3 +1494,120 @@ class IdentityAPITestCase(MoeAPITestCase):
             plain.name,
             ProjectMember.objects(project=project, user=plain).first().display_name,
         )
+    def test_user_preferred_display_name_api_and_project_resolution(self):
+        """用户首选显示名：个人资料设置别名作为首选展示名，加入项目时自动生效；移除别名自动清空。"""
+        user = self.create_user("user-pref-name")
+        token = user.generate_token()
+
+        # 1. 通过 /v1/user/info 修改个人资料设置别名与首选名
+        resp = self.put(
+            "/v1/user/info",
+            token=token,
+            json={
+                "name": user.name,
+                "signature": "我的签名",
+                "locale": "zh_CN",
+                "aliases": ["别名甲", "别名乙"],
+                "default_display_name": "别名乙",
+            },
+        )
+        self.assertErrorEqual(resp)
+        self.assertEqual("别名乙", resp.json["user"]["default_display_name"])
+        self.assertEqual("别名乙", user.reload().default_display_name)
+
+        # 2. 加入项目（团队未设置团队级默认名）时自动使用用户的首选别名
+        project = self.create_project("proj-user-pref")
+        creator = self.get_creator(project.team)
+        self._add_team_member(project.team, user, qualifications=["translator"])
+
+        add_resp = self.post(
+            f"/v1/projects/{project.id}/members/changes",
+            token=creator.generate_token(),
+            json={
+                "operations": [
+                    {
+                        "operation_id": "op-add-user-pref",
+                        "action": "add",
+                        "user_id": str(user.id),
+                        "display_name": user.name,
+                        "tags": ["translator"],
+                    }
+                ]
+            },
+        )
+        self.assertErrorEqual(add_resp)
+        pm = ProjectMember.objects(project=project, user=user).first()
+        self.assertEqual("别名乙", pm.display_name)
+
+        # 3. 通过 /v1/me/aliases 移除该别名，首选名应自动清空
+        resp_alias = self.patch(
+            "/v1/me/aliases",
+            token=token,
+            json={"aliases": ["别名甲"]},
+        )
+        self.assertErrorEqual(resp_alias)
+        self.assertEqual("", user.reload().default_display_name)
+
+    def test_team_creator_force_change_default_display_name_and_sync_to_projects(self):
+        """团队创建者强行更改成员默认展示名，并同步到团队所有已有项目。"""
+        project = self.create_project("force-ddn-proj")
+        team = project.team
+        creator = self.get_creator(team)
+        member_user = self.create_user("team-force-user")
+        member_user.aliases = ["初始别名"]
+        member_user.default_display_name = "初始别名"
+        member_user.save()
+
+        relation = self._add_team_member(team, member_user, qualifications=["translator"])
+        # 添加到项目，初始使用用户的站点首选别名
+        add_resp = self.post(
+            f"/v1/projects/{project.id}/members/changes",
+            token=creator.generate_token(),
+            json={
+                "operations": [
+                    {
+                        "operation_id": "op-force-proj-add",
+                        "action": "add",
+                        "user_id": str(member_user.id),
+                        "display_name": member_user.name,
+                        "tags": ["translator"],
+                    }
+                ]
+            },
+        )
+        self.assertErrorEqual(add_resp)
+        pm = ProjectMember.objects(project=project, user=member_user).first()
+        self.assertEqual("初始别名", pm.display_name)
+
+        # 团队创建者强行更改为「创建者指定名」，并开启 sync_to_projects
+        force_resp = self.patch(
+            f"/v1/teams/{team.id}/members/{relation.id}/default-display-name",
+            token=creator.generate_token(),
+            json={
+                "default_display_name": "创建者指定名",
+                "expected_version": relation.version,
+                "sync_to_projects": True,
+            },
+        )
+        self.assertErrorEqual(force_resp)
+        self.assertEqual("创建者指定名", force_resp.json["member"]["default_display_name"])
+        self.assertEqual("创建者指定名", relation.reload().default_display_name)
+
+        # 项目中的展示名已被同步更新
+        pm.reload()
+        self.assertEqual("创建者指定名", pm.display_name)
+
+        # 团队创建者清空团队默认名并同步，项目中应回退到用户的站点首选名
+        clear_resp = self.patch(
+            f"/v1/teams/{team.id}/members/{relation.id}/default-display-name",
+            token=creator.generate_token(),
+            json={
+                "default_display_name": "",
+                "expected_version": relation.version,
+                "sync_to_projects": True,
+            },
+        )
+        self.assertErrorEqual(clear_resp)
+        self.assertEqual("", relation.reload().default_display_name)
+        pm.reload()
+        self.assertEqual("初始别名", pm.display_name)

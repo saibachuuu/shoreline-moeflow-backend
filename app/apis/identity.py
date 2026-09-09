@@ -258,6 +258,9 @@ class TeamMemberDefaultDisplayNameAPI(MoeAPIView):
             expected_version=data.get("expected_version")
             if isinstance(data, dict)
             else None,
+            sync_to_projects=bool(data.get("sync_to_projects", False))
+            if isinstance(data, dict)
+            else False,
             request_id=_request_id(),
         )
         return {"member": member.to_api()}
@@ -293,6 +296,9 @@ class MeAliasesAPI(MoeAPIView):
             self.current_user,
             self.current_user,
             data.get("aliases") if isinstance(data, dict) else None,
+            default_display_name=data.get("default_display_name")
+            if isinstance(data, dict) and "default_display_name" in data
+            else None,
             request_id=_request_id(),
         )
         return {"user": user.to_api(), "audit_event_id": str(event.id)}
@@ -307,6 +313,9 @@ class UserAliasesAPI(MoeAPIView):
             user,
             self.current_user,
             data.get("aliases") if isinstance(data, dict) else None,
+            default_display_name=data.get("default_display_name")
+            if isinstance(data, dict) and "default_display_name" in data
+            else None,
             request_id=_request_id(),
         )
         return {"user": target.to_api(), "audit_event_id": str(event.id)}

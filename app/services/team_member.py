@@ -364,7 +364,15 @@ class TeamMemberService:
 
     @classmethod
     def update_default_display_name(
-        cls, team, member_id, operator, value, *, expected_version=None, request_id=None
+        cls,
+        team,
+        member_id,
+        operator,
+        value,
+        *,
+        expected_version=None,
+        sync_to_projects=False,
+        request_id=None,
     ):
         """Edit the member's per-team project display-name preference.
 
@@ -397,6 +405,23 @@ class TeamMemberService:
             member.save(save_condition={"version": expected_version})
         except SaveConditionError:
             raise IdentityVersionConflictError
+        if sync_to_projects and member.user is not None:
+            from app.models.project import Project
+            from app.models.project_member import ProjectMember
+
+            project_ids = list(Project.objects(team=team).scalar("id"))
+            if project_ids:
+                effective_name = value or (
+                    getattr(member.user, "default_display_name", "") or member.user.name
+                )
+                for pm in ProjectMember.objects(
+                    project__in=project_ids, user=member.user, status="active"
+                ):
+                    pm.display_name = effective_name
+                    pm.display_name_search = normalize_search_text(effective_name)
+                    pm.version += 1
+                    pm.edit_time = datetime.datetime.utcnow()
+                    pm.save()
         record_audit(
             actor=operator,
             scope="team",

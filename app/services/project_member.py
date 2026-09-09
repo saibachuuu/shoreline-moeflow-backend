@@ -185,7 +185,11 @@ class ProjectMemberService:
         """
         from app.services.team_member import TeamMemberService
 
-        return TeamMemberService.default_display_name(project.team, user) or user.name
+        team_pref = TeamMemberService.default_display_name(project.team, user)
+        if team_pref:
+            return team_pref
+        user_pref = (getattr(user, "default_display_name", "") or "").strip()
+        return user_pref or user.name
 
     @classmethod
     def _add_user_display_name(cls, project, user, display_name) -> str:

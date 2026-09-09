@@ -90,6 +90,7 @@ class User(Document):
     aliases = ListField(StringField(), default=list, db_field="as")
     name_search = StringField(default="", db_field="ns")
     aliases_search = ListField(StringField(), default=list, db_field="asrch")
+    default_display_name = StringField(default="", max_length=140, db_field="ddn")
     signature = StringField(default="", db_field="s")  # 个性签名
     locale = StringField(default=Locale.AUTO, db_field="l")  # 语言 # NOT USED
     timezone = StringField(default="", db_field="t")  # 时区
@@ -128,6 +129,17 @@ class User(Document):
             )
             if normalized
         ]
+        if self.default_display_name:
+            self.default_display_name = self.default_display_name.strip()
+            if len(self.default_display_name) > 140:
+                raise ValueError("default display name is too long")
+            if (
+                self.default_display_name != self.name
+                and self.default_display_name not in (self.aliases or [])
+            ):
+                self.default_display_name = ""
+        else:
+            self.default_display_name = ""
 
     @classmethod
     def create(cls, name: str, email: str, password: str) -> "User":
@@ -311,6 +323,7 @@ class User(Document):
         data = {
             "id": str(self.id),
             "name": self.name,
+            "default_display_name": self.default_display_name or "",
             "signature": self.signature,
             "avatar": self.avatar,
             "has_avatar": self.has_avatar(),
