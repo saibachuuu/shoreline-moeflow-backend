@@ -6,7 +6,7 @@
 <title>[{{ project.name }}] 校对稿修改反馈</title>
 </head>
 <body style="margin: 0; padding: 20px 10px; background-color: #f4f6f8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #24292e;">
-<div style="max-width: 780px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #e1e4e8;">
+<div style="max-width: 960px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #e1e4e8;">
     
     <!-- 头部横幅 -->
     <div style="padding: 24px 24px 16px; border-bottom: 1px solid #eaecef; background: linear-gradient(to bottom, #ffffff, #fafbfc);">
@@ -43,49 +43,54 @@
                 </div>
             </div>
 
-            <!-- 标签列表表格 -->
-            <div style="overflow-x: auto;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.5; text-align: left;">
-                    <thead>
-                        <tr style="background-color: #fafbfc; border-bottom: 1px solid #d0d7de; color: #57606a;">
-                            <th style="padding: 8px 10px; width: 60px; text-align: center;">序号</th>
-                            <th style="padding: 8px 10px; width: 22%;">原文</th>
-                            <th style="padding: 8px 10px; width: 25%;">翻译原稿</th>
-                            <th style="padding: 8px 10px;">校对稿（高亮差异）</th>
-                            <th style="padding: 8px 10px; width: 65px; text-align: center;">状态</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for label in page.labels %}
-                        {% if label.is_changed %}
-                        <tr style="background-color: #fffbe6; border-bottom: 1px solid #ffe58f;">
-                            <td style="padding: 10px; text-align: center; vertical-align: top;">
-                                <span style="display: inline-block; background-color: #ffe58f; color: #d46b08; font-weight: bold; padding: 2px 6px; border-radius: 4px; font-size: 12px;">#{{ label.label_num }}</span>
-                            </td>
-                            <td style="padding: 10px; color: #57606a; vertical-align: top; word-break: break-word;">{{ label.source_text }}</td>
-                            <td style="padding: 10px; color: #6e7781; text-decoration: line-through; vertical-align: top; word-break: break-word;">{{ label.orig_translation }}</td>
-                            <td style="padding: 10px; color: #1f2328; vertical-align: top; word-break: break-word;">{{ label.diff_html | safe }}</td>
-                            <td style="padding: 10px; text-align: center; vertical-align: top;">
-                                <span style="display: inline-block; background-color: #ff4d4f; color: #ffffff; font-weight: 600; padding: 1px 6px; border-radius: 3px; font-size: 11px;">已修改</span>
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr style="background-color: #ffffff; border-bottom: 1px solid #f0f0f0; color: #8c8c8c;">
-                            <td style="padding: 8px 10px; text-align: center; vertical-align: top;">
-                                <span style="color: #bfbfbf;">#{{ label.label_num }}</span>
-                            </td>
-                            <td style="padding: 8px 10px; vertical-align: top; word-break: break-word;">{{ label.source_text }}</td>
-                            <td style="padding: 8px 10px; vertical-align: top; word-break: break-word;">{{ label.orig_translation }}</td>
-                            <td style="padding: 8px 10px; vertical-align: top; word-break: break-word;">{{ label.proofread_translation or label.orig_translation }}</td>
-                            <td style="padding: 8px 10px; text-align: center; vertical-align: top;">
-                                <span style="color: #bfbfbf; font-size: 11px;">无更改</span>
-                            </td>
-                        </tr>
-                        {% endif %}
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+            <!-- 图文两栏：左侧嵌入图片，右侧文字修改列表 -->
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                <tr>
+                    {% if page.image_url %}
+                    <td style="width: 280px; min-width: 240px; max-width: 320px; vertical-align: top; padding: 14px; border-right: 1px solid #eaecef; background-color: #fafbfc; text-align: center;">
+                        <a href="{{ page.image_url }}" target="_blank" style="display: inline-block; text-decoration: none;">
+                            <img src="{{ page.image_url }}" alt="{{ page.file_name }}" style="max-width: 100%; width: auto; max-height: 540px; border-radius: 6px; border: 1px solid #d0d7de; box-shadow: 0 1px 4px rgba(0,0,0,0.08); display: block; margin: 0 auto;" />
+                        </a>
+                        <div style="font-size: 11px; color: #8c959f; margin-top: 8px;">点击查看大图</div>
+                    </td>
+                    {% endif %}
+                    <td style="vertical-align: top; padding: 0;">
+                        <!-- 标签修改对比表格（已移除 原文 和 状态 栏） -->
+                        <div style="overflow-x: auto;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.5; text-align: left;">
+                                <thead>
+                                    <tr style="background-color: #fafbfc; border-bottom: 1px solid #d0d7de; color: #57606a;">
+                                        <th style="padding: 8px 10px; width: 50px; text-align: center;">序号</th>
+                                        <th style="padding: 8px 10px; width: 42%;">翻译原稿</th>
+                                        <th style="padding: 8px 10px;">校对稿（高亮差异）</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for label in page.labels %}
+                                    {% if label.is_changed %}
+                                    <tr style="background-color: #fffbe6; border-bottom: 1px solid #ffe58f;">
+                                        <td style="padding: 9px 8px; text-align: center; vertical-align: top;">
+                                            <span style="display: inline-block; background-color: #ffe58f; color: #d46b08; font-weight: bold; padding: 2px 6px; border-radius: 4px; font-size: 12px;">#{{ label.label_num }}</span>
+                                        </td>
+                                        <td style="padding: 9px 10px; color: #6e7781; text-decoration: line-through; vertical-align: top; word-break: break-word;">{{ label.orig_translation }}</td>
+                                        <td style="padding: 9px 10px; color: #1f2328; vertical-align: top; word-break: break-word;">{{ label.diff_html | safe }}</td>
+                                    </tr>
+                                    {% else %}
+                                    <tr style="background-color: #ffffff; border-bottom: 1px solid #f0f0f0; color: #8c8c8c;">
+                                        <td style="padding: 8px 8px; text-align: center; vertical-align: top;">
+                                            <span style="color: #bfbfbf; font-size: 12px;">#{{ label.label_num }}</span>
+                                        </td>
+                                        <td style="padding: 8px 10px; vertical-align: top; word-break: break-word;">{{ label.orig_translation }}</td>
+                                        <td style="padding: 8px 10px; vertical-align: top; word-break: break-word;">{{ label.proofread_translation or label.orig_translation }}</td>
+                                    </tr>
+                                    {% endif %}
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </td>
+                </tr>
+            </table>
         </div>
         {% endfor %}
     </div>

@@ -10,12 +10,10 @@
 --------------------------------------------------
 {% for page in changed_pages %}
 【第 {{ page.page_number }} 页】{{ page.file_name }} ({{ page.changed_count }} 处修改)
+{% if page.image_url %}页面图片：{{ page.image_url }}{% endif %}
 {% for label in page.labels %}
 {% if label.is_changed %}
-* [#{{ label.label_num }}] [已修改]
-  原文：{{ label.source_text }}
-  原译：{{ label.orig_translation }}
-  校对：{{ label.proofread_translation }}
+* [#{{ label.label_num }}] 原译：{{ label.orig_translation }} -> 校对：{{ label.proofread_translation }}
 {% else %}
   [#{{ label.label_num }}] {{ label.proofread_translation or label.orig_translation }}
 {% endif %}

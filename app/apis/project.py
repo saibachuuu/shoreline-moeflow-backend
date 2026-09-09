@@ -497,10 +497,21 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
                 })
 
             if changed_count > 0:
+                img_url = ""
+                try:
+                    resample = getattr(file, "resample_url", "")
+                    if resample and resample != "generating":
+                        img_url = resample
+                    else:
+                        img_url = getattr(file, "url", "") or ""
+                except Exception:
+                    img_url = getattr(file, "url", "") or ""
+
                 changed_pages.append({
                     "page_number": file_page_map.get(file.id, 1),
                     "file_id": str(file.id),
                     "file_name": file.name,
+                    "image_url": img_url,
                     "total_sources": len(sources),
                     "changed_count": changed_count,
                     "changed_label_nums": [

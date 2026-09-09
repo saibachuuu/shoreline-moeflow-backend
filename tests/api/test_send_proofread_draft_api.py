@@ -138,3 +138,4 @@ class SendProofreadDraftAPITestCase(MoeAPITestCase):
         self.assertEqual(template_data["changed_pages"][0]["page_number"], 1)
         self.assertEqual(template_data["changed_pages"][0]["changed_count"], 1)
         self.assertEqual(template_data["changed_pages"][0]["changed_label_nums"], [1])
+        self.assertIn("image_url", template_data["changed_pages"][0])
