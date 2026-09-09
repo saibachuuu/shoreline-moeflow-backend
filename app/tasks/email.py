@@ -66,8 +66,8 @@ def email_task(
 
     # 构建alternative结构
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = Header(subject).encode()
-    msg["From"] = "%s <%s>" % (Header(from_username).encode(), from_address)
+    msg["Subject"] = Header(subject, "utf-8").encode()
+    msg["From"] = "%s <%s>" % (Header(from_username, "utf-8").encode(), from_address)
     if to_list:
         msg["To"] = ", ".join(to_list)
     elif cc_list:
@@ -100,7 +100,7 @@ def email_task(
                 pass
         # 开启DEBUG模式
         client.set_debuglevel(0)
-        client.login(from_username, email_password)
+        client.login(email_username, email_password)
         # 发件人和认证地址必须一致
         # 备注：若想取到DATA命令返回值,可参考smtplib的sendmaili封装方法:
         #      使用SMTP.mail/SMTP.rcpt/SMTP.data方法
