@@ -57,6 +57,16 @@ class SiteSettingAPI(MoeAPIView):
         site_setting.custom_site_title = data.get("custom_site_title", "")
         site_setting.homepage_welcome = data.get("homepage_welcome", "")
         site_setting.homepage_image_url = data.get("homepage_image_url", "")
+        if "partner_search_enabled" in data:
+            site_setting.partner_search_enabled = data["partner_search_enabled"]
+        if "partner_search_team_ids" in data:
+            site_setting.partner_search_team_ids = data["partner_search_team_ids"]
+        if "partner_search_rate_limit_seconds" in data:
+            site_setting.partner_search_rate_limit_seconds = data[
+                "partner_search_rate_limit_seconds"
+            ]
+        if "partner_search_max_limit" in data:
+            site_setting.partner_search_max_limit = data["partner_search_max_limit"]
         site_setting.save()
         site_setting.reload()
         return site_setting.to_api()

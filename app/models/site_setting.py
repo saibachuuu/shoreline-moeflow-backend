@@ -3,6 +3,7 @@ from mongoengine import (
     Document,
     ListField,
     BooleanField,
+    IntField,
     StringField,
     ObjectIdField,
 )
@@ -26,6 +27,16 @@ class SiteSetting(Document):
     custom_site_title = StringField(db_field="st", default="")
     homepage_welcome = StringField(db_field="hw", default="")
     homepage_image_url = StringField(db_field="hi", default="")
+
+    # == 站外撞车查询（partner search）==
+    # 是否对外开放本站的项目撞车查询接口
+    partner_search_enabled = BooleanField(db_field="pse", default=False)
+    # 允许被站外查询索引的团队（仅这些团队下的项目会被检索）
+    partner_search_team_ids = ListField(ObjectIdField(), db_field="pst", default=list)
+    # 速率限制：同一来源地址在 n 秒内仅允许查询一次
+    partner_search_rate_limit_seconds = IntField(db_field="psq", default=10)
+    # 单次查询返回结果的条数上限
+    partner_search_max_limit = IntField(db_field="psm", default=20)
 
     meta = {
         "indexes": [
@@ -56,4 +67,8 @@ class SiteSetting(Document):
             "custom_site_title": self.custom_site_title,
             "homepage_welcome": self.homepage_welcome,
             "homepage_image_url": self.homepage_image_url,
+            "partner_search_enabled": self.partner_search_enabled,
+            "partner_search_team_ids": [str(id) for id in self.partner_search_team_ids],
+            "partner_search_rate_limit_seconds": self.partner_search_rate_limit_seconds,
+            "partner_search_max_limit": self.partner_search_max_limit,
         }

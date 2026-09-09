@@ -89,6 +89,7 @@ from app.apis.manga_image_translator import (
     MitImageTaskApi,
     MitTranslateTaskApi,
 )
+from app.apis.partner_search import PartnerSearchEntryAPI
 from app import app_config
 
 v1_prefix = "/v1"
@@ -556,6 +557,18 @@ admin.add_url_rule(
     "/v-codes",
     methods=["GET", "OPTIONS"],
     view_func=AdminVCodeListAPI.as_view("admin_v_code_list"),
+)
+
+# 站外撞车查询（跨组项目检索，需在站点设置开启并在配置团队范围内）
+partner_search = Blueprint(
+    "partner_search",
+    __name__,
+    url_prefix=v1_prefix + "/partner-search-query-entry",
+)
+partner_search.add_url_rule(
+    "",
+    methods=["POST", "OPTIONS"],
+    view_func=PartnerSearchEntryAPI.as_view("partner_search_entry"),
 )
 
 if app_config["MIT_STORAGE_ROOT"]:
