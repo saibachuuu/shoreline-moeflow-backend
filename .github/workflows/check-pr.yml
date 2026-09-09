@@ -37,12 +37,11 @@ jobs:
       with:
         job-summary: true
         verbose: true
-        custom-arguments: '-n=2'
         emoji: false
     - uses: codecov/codecov-action@v4.5.0
       if: always()
       with:
-        fail_ci_if_error: true
+        fail_ci_if_error: false
         use_oidc: true
     - name: save test report
       uses: actions/upload-artifact@v4

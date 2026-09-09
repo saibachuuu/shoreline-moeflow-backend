@@ -1,25 +1,7 @@
-# genearted from moeflow-deploy repo like
-# docker-compose -f docker-compose.yml -f docker-compose.dev.yml config moeflow-mongodb moeflow-rabbitmq
+# Test dependencies for moeflow-backend
+# Database tests run in-memory via mongomock; rabbitmq is maintained for celery broker.
 version: '3.3'
-# name: moeflow-backend-test-deps
 services:
-  moeflow-mongodb:
-    environment:
-      MONGO_INITDB_ROOT_PASSWORD: CHANGE_ME
-      MONGO_INITDB_ROOT_USERNAME: moeflow
-    healthcheck:
-      test:
-        - CMD
-        - mongo
-        - --eval
-        - db.adminCommand('ping')
-      timeout: 5s
-      interval: 15s
-      start_period: 10s
-    image: docker.io/mongo:4.4.1
-    ports:
-      - 127.0.0.1:27017:27017
-    restart: unless-stopped
   moeflow-rabbitmq:
     environment:
       RABBITMQ_DEFAULT_PASS: CHANGE_ME
