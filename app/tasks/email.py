@@ -77,14 +77,14 @@ def email_task(
     msg["Reply-to"] = reply_address  # 自定义的回复地址
     msg["Message-id"] = email.utils.make_msgid()
     msg["Date"] = email.utils.formatdate()
-    # 构建alternative的text/html部分
-    if html_content:
-        text_html = MIMEText(html_content.encode(), _subtype="html", _charset="UTF-8")
-        msg.attach(text_html)
-    # 构建alternative的text/plain部分
+    # 构建alternative的text/plain部分（必须在前，作为纯文本客户端保底）
     if text_content:
-        text_plain = MIMEText(text_content.encode(), _subtype="plain", _charset="UTF-8")
+        text_plain = MIMEText(text_content, _subtype="plain", _charset="utf-8")
         msg.attach(text_plain)
+    # 构建alternative的text/html部分（必须在后，RFC 2046规范优先呈现最后一项）
+    if html_content:
+        text_html = MIMEText(html_content, _subtype="html", _charset="utf-8")
+        msg.attach(text_html)
     # 发送邮件
     try:
         # 是否使用ssl
