@@ -5,17 +5,17 @@
 
 ## HOWTOs
 
-### initialize the Python 3.12 system environment
+### init venv for development
 
 ```
-$ py -3.12 --version
-$ py -3.12 -m pip install -r requirements-dev.txt
+$ make create-venv deps
+$ venv/bin/pip install -r requirements.txt
 ```
 
 ### lint + format code
 
 ```
-$ py -3.12 -m ruff check .
+$ venv/bin/ruff .
 ```
 
 

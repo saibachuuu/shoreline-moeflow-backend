@@ -1,65 +1,62 @@
 PYTEST_COV_ARGS =
 
-# Use the installed Python 3.12 interpreter. Override for another platform
-# with e.g. `make PYTHON_BIN=python3.12`.
-PYTHON_BIN ?= py -3.12
-PIP_BIN ?= $(PYTHON_BIN) -m pip
-PYTEST_BIN ?= $(PYTHON_BIN) -m pytest
-RUFF_BIN ?= $(PYTHON_BIN) -m ruff
-PYBABEL_BIN ?= pybabel
-UV_BIN ?= uv
+BIN_PREFIX ?= venv/bin
+
+PYTHON_BIN = python3.11
 
 FORCE: ;
 
+create-venv:
+	$(PYTHON_BIN) -mvenv venv
+
 deps:
-	$(PIP_BIN) install -r requirements-dev.txt
+	venv/bin/pip install -r requirements.txt
 
-deps-runtime:
-	$(PIP_BIN) install -r requirements.txt
+remove-venv: FORCE
+	rm -rf venv
 
-lock: requirements.txt requirements-dev.txt
+recreate-venv: remove-venv create-venv
 
 lint:
-	$(RUFF_BIN) check
+	venv/bin/ruff check
 
 lint-fix:
-	$(RUFF_BIN) check --fix
+	venv/bin/ruff --fix
 
 format:
-	$(RUFF_BIN) format
+	venv/bin/ruff format
 
-requirements.txt: requirements.in
-	$(UV_BIN) pip compile requirements.in --python-version 3.12 -o requirements.txt
-
-requirements-dev.txt: requirements-dev.in requirements.txt
-	$(UV_BIN) pip compile requirements-dev.in --python-version 3.12 -o requirements-dev.txt
-
-deps-tree:
-	$(PYTHON_BIN) -m pipdeptree --warn fail
+requirements.txt: deps-top.txt
+	rm -rf venv-rebuild-deps
+	$(PYTHON_BIN) -mvenv venv-rebuild-deps
+	venv-rebuild-deps/bin/pip install -r deps-top.txt
+	echo '# GENERATED: run make requirements.txt to recreate lock file' > requirements.txt
+	venv-rebuild-deps/bin/pipdeptree --freeze >> requirements.txt
+	rm -rf venv-rebuild-deps
 
 test: test_all
 
 test_all:
-	$(PYTEST_BIN) $(PYTEST_COV_ARGS)
+	venv/bin/pytest
 
 test_all_parallel:
 	# TODO: fix this
-	$(PYTEST_BIN) -n 8 $(PYTEST_COV_ARGS)
+	venv/bin/pytest -n 8
 
 test_single:
-	$(PYTEST_BIN) tests/api/test_file_api.py $(PYTEST_COV_ARGS)
+	venv/bin/pytest tests/api/test_file_api.py
 
 test_logging:
 	#--capture=no
-	$(PYTEST_BIN) --capture=sys --log-cli-level=DEBUG tests/base/test_logging.py $(PYTEST_COV_ARGS)
+	venv/bin/pytest --capture=sys --log-cli-level=DEBUG tests/base/test_logging.py
 
 babel-update-po:
-	$(PYBABEL_BIN) extract -F babel.cfg -k lazy_gettext -k hardcode_text -o messages.pot app
-	$(PYBABEL_BIN) update -i messages.pot -d app/translations
+	$(BIN_PREFIX)/pybabel extract -F babel.cfg -k lazy_gettext -k hardcode_text -o messages.pot app
+	$(BIN_PREFIX)/pybabel update -i messages.pot -d app/translations
 
 babel-update-mo: babel-update-po
-	$(PYBABEL_BIN) compile -d app/translations
+	$(BIN_PREFIX)/pybabel compile -d app/translations
 
 babel-translate-po:
-	$(PYTHON_BIN) app/scripts/fill_zh_translations.py
-	$(PYTHON_BIN) app/scripts/fill_en_translations.py
+	venv/bin/python app/scripts/fill_zh_translations.py
+	venv/bin/python app/scripts/fill_en_translations.py
