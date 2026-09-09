@@ -449,8 +449,9 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
 
         # 获取全部图片用于计算全局页码
         all_image_files = list(
-            File.objects(project=project, type=FileType.IMAGE, activated=True)
-            .order_by("dir_sort_name", "sort_name")
+            File.objects(project=project, type=FileType.IMAGE, activated=True).order_by(
+                "dir_sort_name", "sort_name"
+            )
         )
         file_page_map = {f.id: i + 1 for i, f in enumerate(all_image_files)}
 
@@ -471,30 +472,36 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
             changed_count = 0
             for idx, source in enumerate(sources):
                 label_num = source.rank + 1
-                translation = (
-                    Translation.objects(source=source, target=target, selected=True).first()
-                    or source.best_translation(target=target)
-                )
+                translation = Translation.objects(
+                    source=source, target=target, selected=True
+                ).first() or source.best_translation(target=target)
                 orig_content = (translation.content if translation else "") or ""
-                proof_content = (translation.proofread_content if translation else "") or ""
+                proof_content = (
+                    translation.proofread_content if translation else ""
+                ) or ""
 
                 is_changed = False
-                if proof_content.strip() and proof_content.strip() != orig_content.strip():
+                if (
+                    proof_content.strip()
+                    and proof_content.strip() != orig_content.strip()
+                ):
                     is_changed = True
                     changed_count += 1
                     diff_html = generate_diff_html(orig_content, proof_content)
                 else:
                     diff_html = html.escape(proof_content or orig_content or "")
 
-                page_labels.append({
-                    "source_id": str(source.id),
-                    "label_num": label_num,
-                    "source_text": source.content or "",
-                    "orig_translation": orig_content,
-                    "proofread_translation": proof_content,
-                    "is_changed": is_changed,
-                    "diff_html": diff_html,
-                })
+                page_labels.append(
+                    {
+                        "source_id": str(source.id),
+                        "label_num": label_num,
+                        "source_text": source.content or "",
+                        "orig_translation": orig_content,
+                        "proofread_translation": proof_content,
+                        "is_changed": is_changed,
+                        "diff_html": diff_html,
+                    }
+                )
 
             if changed_count > 0:
                 img_url = ""
@@ -507,18 +514,20 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
                 except Exception:
                     img_url = getattr(file, "url", "") or ""
 
-                changed_pages.append({
-                    "page_number": file_page_map.get(file.id, 1),
-                    "file_id": str(file.id),
-                    "file_name": file.name,
-                    "image_url": img_url,
-                    "total_sources": len(sources),
-                    "changed_count": changed_count,
-                    "changed_label_nums": [
-                        l["label_num"] for l in page_labels if l["is_changed"]
-                    ],
-                    "labels": page_labels,
-                })
+                changed_pages.append(
+                    {
+                        "page_number": file_page_map.get(file.id, 1),
+                        "file_id": str(file.id),
+                        "file_name": file.name,
+                        "image_url": img_url,
+                        "total_sources": len(sources),
+                        "changed_count": changed_count,
+                        "changed_label_nums": [
+                            lbl["label_num"] for lbl in page_labels if lbl["is_changed"]
+                        ],
+                        "labels": page_labels,
+                    }
+                )
 
         if not changed_pages:
             raise ProofreadDraftNoChangesError

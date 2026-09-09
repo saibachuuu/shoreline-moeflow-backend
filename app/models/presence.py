@@ -75,19 +75,19 @@ class ProjectPresence(Document):
             if not u:
                 continue
             name = (
-                pms.get(str(u.id))
-                or getattr(u, "default_display_name", "")
-                or u.name
+                pms.get(str(u.id)) or getattr(u, "default_display_name", "") or u.name
             )
-            users.append({
-                "id": str(u.id),
-                "name": name,
-                "avatar": u.avatar or "",
-                "action": p.action or "working",
-                "last_heartbeat": (
-                    p.last_heartbeat.isoformat() if p.last_heartbeat else ""
-                ),
-            })
+            users.append(
+                {
+                    "id": str(u.id),
+                    "name": name,
+                    "avatar": u.avatar or "",
+                    "action": p.action or "working",
+                    "last_heartbeat": (
+                        p.last_heartbeat.isoformat() if p.last_heartbeat else ""
+                    ),
+                }
+            )
         return users
 
     @classmethod
@@ -127,15 +127,17 @@ class ProjectPresence(Document):
                 or getattr(u, "default_display_name", "")
                 or u.name
             )
-            active_projects[pid]["users"].append({
-                "id": str(u.id),
-                "name": name,
-                "avatar": u.avatar or "",
-                "action": p.action or "working",
-                "last_heartbeat": (
-                    p.last_heartbeat.isoformat() if p.last_heartbeat else ""
-                ),
-            })
+            active_projects[pid]["users"].append(
+                {
+                    "id": str(u.id),
+                    "name": name,
+                    "avatar": u.avatar or "",
+                    "action": p.action or "working",
+                    "last_heartbeat": (
+                        p.last_heartbeat.isoformat() if p.last_heartbeat else ""
+                    ),
+                }
+            )
 
         for pid in active_projects:
             active_projects[pid]["user_count"] = len(active_projects[pid]["users"])

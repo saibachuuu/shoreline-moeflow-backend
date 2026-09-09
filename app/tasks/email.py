@@ -42,14 +42,18 @@ def email_task(
         reply_address = email_reply_address
     # 处理收件人和抄送地址
     if isinstance(to_address, (list, tuple, set)):
-        to_list = [str(addr).strip() for addr in to_address if addr and str(addr).strip()]
+        to_list = [
+            str(addr).strip() for addr in to_address if addr and str(addr).strip()
+        ]
     elif to_address and str(to_address).strip():
         to_list = [str(to_address).strip()]
     else:
         to_list = []
 
     if isinstance(cc_address, (list, tuple, set)):
-        cc_list = [str(addr).strip() for addr in cc_address if addr and str(addr).strip()]
+        cc_list = [
+            str(addr).strip() for addr in cc_address if addr and str(addr).strip()
+        ]
     elif cc_address and str(cc_address).strip():
         cc_list = [str(cc_address).strip()]
     else:

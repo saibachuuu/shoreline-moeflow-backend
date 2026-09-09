@@ -12,9 +12,7 @@ class ProjectPresenceHeartbeatAPI(MoeAPIView):
     @fetch_model(Project)
     def post(self, project):
         data = request.get_json(silent=True) or {}
-        action = (
-            data.get("action", "working") if isinstance(data, dict) else "working"
-        )
+        action = data.get("action", "working") if isinstance(data, dict) else "working"
         if not isinstance(action, str):
             action = "working"
         ProjectPresence.heartbeat(project, self.current_user, action=action[:64])
