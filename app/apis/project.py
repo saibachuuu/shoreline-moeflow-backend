@@ -2,6 +2,7 @@ from app.constants.file import FileType, ParseStatus
 from app.constants.output import OutputTypes
 from app.tasks.ocr import ocr
 from app.models.team import TeamPermission
+from app.tasks.email import send_email
 import datetime
 from app.exceptions.project import ProjectFinishedError, TargetNotExistError
 from flask import current_app
@@ -378,4 +379,205 @@ class ProjectThumbnailAPI(MoeAPIView):
         return {
             "message": gettext("已为 %(count)s 张图片触发缩略图生成任务", count=count),
             "count": count,
+        }
+
+
+def generate_diff_html(orig: str, proof: str) -> str:
+    """生成带行内高亮对比的 HTML 差异文本"""
+    import difflib
+    import html
+
+    matcher = difflib.SequenceMatcher(None, orig or "", proof or "")
+    result = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            result.append(html.escape(orig[i1:i2]))
+        elif tag == "delete":
+            deleted = html.escape(orig[i1:i2])
+            result.append(
+                f'<del style="background-color: #ffdce0; color: #af1b28; text-decoration: line-through; padding: 1px 3px; border-radius: 2px; margin: 0 1px;">{deleted}</del>'
+            )
+        elif tag == "insert":
+            inserted = html.escape(proof[j1:j2])
+            result.append(
+                f'<ins style="background-color: #dcffe4; color: #116329; text-decoration: none; padding: 1px 3px; border-radius: 2px; font-weight: bold; margin: 0 1px;">{inserted}</ins>'
+            )
+        elif tag == "replace":
+            deleted = html.escape(orig[i1:i2])
+            inserted = html.escape(proof[j1:j2])
+            result.append(
+                f'<del style="background-color: #ffdce0; color: #af1b28; text-decoration: line-through; padding: 1px 3px; border-radius: 2px; margin: 0 1px;">{deleted}</del>'
+                f'<ins style="background-color: #dcffe4; color: #116329; text-decoration: none; padding: 1px 3px; border-radius: 2px; font-weight: bold; margin: 0 1px;">{inserted}</ins>'
+            )
+    return "".join(result)
+
+
+class ProjectSendProofreadDraftAPI(MoeAPIView):
+    @token_required
+    @fetch_model(Project)
+    @fetch_model(Target)
+    def post(self, project: Project, target: Target):
+        """
+        @api {post} /v1/projects/<project_id>/targets/<target_id>/send-proofread-draft 向翻译寄送校对稿
+        @apiVersion 1.0.0
+        @apiName postProjectSendProofreadDraft
+        @apiGroup Project
+        @apiUse APIHeader
+        @apiUse TokenHeader
+        @apiParam {Boolean} [cc_myself=true] 是否为我自己抄送一份
+        @apiParam {String} [file_id] 可选，限制为单个文件
+        """
+        import html
+        from app.exceptions.project import (
+            FileNotExistError,
+            NoTranslatorMemberError,
+            ProofreadDraftNoChangesError,
+        )
+        from app.models.file import File, Source, Translation
+        from app.models.project_member import ProjectMember
+        from app.validators.project import SendProofreadDraftSchema
+
+        # 检查校对权限
+        if not self.current_user.can(project, ProjectPermission.PROOFREAD_TRA):
+            raise NoPermissionError(gettext("您没有校对权限，无法寄送校对稿"))
+        if target.project != project:
+            raise TargetNotExistError
+
+        data = self.get_json(SendProofreadDraftSchema())
+        cc_myself = data.get("cc_myself", True)
+        file_id = data.get("file_id")
+
+        # 获取全部图片用于计算全局页码
+        all_image_files = list(
+            File.objects(project=project, type=FileType.IMAGE, activated=True)
+            .order_by("dir_sort_name", "sort_name")
+        )
+        file_page_map = {f.id: i + 1 for i, f in enumerate(all_image_files)}
+
+        if file_id:
+            target_file = File.objects(
+                id=file_id, project=project, type=FileType.IMAGE, activated=True
+            ).first()
+            if not target_file:
+                raise FileNotExistError
+            scan_files = [target_file]
+        else:
+            scan_files = all_image_files
+
+        changed_pages = []
+        for file in scan_files:
+            sources = Source.objects(file=file).order_by("rank")
+            page_labels = []
+            changed_count = 0
+            for idx, source in enumerate(sources):
+                label_num = source.rank + 1
+                translation = (
+                    Translation.objects(source=source, target=target, selected=True).first()
+                    or source.best_translation(target=target)
+                )
+                orig_content = (translation.content if translation else "") or ""
+                proof_content = (translation.proofread_content if translation else "") or ""
+
+                is_changed = False
+                if proof_content.strip() and proof_content.strip() != orig_content.strip():
+                    is_changed = True
+                    changed_count += 1
+                    diff_html = generate_diff_html(orig_content, proof_content)
+                else:
+                    diff_html = html.escape(proof_content or orig_content or "")
+
+                page_labels.append({
+                    "source_id": str(source.id),
+                    "label_num": label_num,
+                    "source_text": source.content or "",
+                    "orig_translation": orig_content,
+                    "proofread_translation": proof_content,
+                    "is_changed": is_changed,
+                    "diff_html": diff_html,
+                })
+
+            if changed_count > 0:
+                changed_pages.append({
+                    "page_number": file_page_map.get(file.id, 1),
+                    "file_id": str(file.id),
+                    "file_name": file.name,
+                    "total_sources": len(sources),
+                    "changed_count": changed_count,
+                    "changed_label_nums": [
+                        l["label_num"] for l in page_labels if l["is_changed"]
+                    ],
+                    "labels": page_labels,
+                })
+
+        if not changed_pages:
+            raise ProofreadDraftNoChangesError
+
+        # 查询项目中“翻译”栏活跃成员的邮箱
+        translators = ProjectMember.objects(
+            project=project,
+            status="active",
+            tags="translator",
+            user__exists=True,
+        )
+        translator_emails = []
+        for m in translators:
+            if m.user and m.user.email:
+                addr = m.user.email.strip().lower()
+                if addr and addr not in translator_emails:
+                    translator_emails.append(addr)
+
+        current_user_email = (
+            self.current_user.email.strip().lower()
+            if (self.current_user and self.current_user.email)
+            else None
+        )
+
+        to_emails = list(translator_emails)
+        cc_emails = []
+        if cc_myself and current_user_email:
+            if current_user_email in to_emails:
+                pass
+            else:
+                cc_emails.append(current_user_email)
+
+        if not to_emails:
+            if cc_myself and current_user_email:
+                to_emails = [current_user_email]
+            else:
+                raise NoTranslatorMemberError
+
+        target_lang_name = target.language.lo_name if target.language else ""
+        site_name = current_app.config.get("SITE_NAME", "萌翻")
+        site_origin = str(current_app.config.get("SITE_ORIGIN", "")).rstrip("/")
+        project_url = f"{site_origin}/project/{project.id}" if site_origin else ""
+        total_changed = sum(p["changed_count"] for p in changed_pages)
+        subject = f"[{project.name}] 校对稿修改反馈 - {target_lang_name}"
+
+        send_email(
+            to_address=to_emails,
+            subject=subject,
+            template="email/proofread_draft",
+            template_data={
+                "site_name": site_name,
+                "project": project,
+                "target": target,
+                "target_language_name": target_lang_name,
+                "sender_name": self.current_user.name,
+                "sender_email": current_user_email,
+                "send_time": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+                "total_changed_labels": total_changed,
+                "changed_pages": changed_pages,
+                "project_url": project_url,
+                "reply_address": current_user_email,
+            },
+            reply_address=current_user_email,
+            from_username=f"{site_name} - 校对反馈",
+            cc_address=cc_emails if cc_emails else None,
+        )
+
+        return {
+            "message": gettext("校对稿已成功发送至翻译邮箱"),
+            "recipients": to_emails + cc_emails,
+            "changed_pages_count": len(changed_pages),
+            "changed_labels_count": total_changed,
         }

@@ -275,3 +275,23 @@ class LabelplusParseFailedError(ProjectRootError):
 
     code = 4029
     message = lazy_gettext('"翻译数据.txt" 解析失败')
+
+
+class ProofreadDraftNoChangesError(ProjectRootError):
+    """
+    @apiDefine ProofreadDraftNoChangesError
+    @apiError 4030 未检测到存在校对修改的内容，无需发送邮件
+    """
+
+    code = 4030
+    message = lazy_gettext("未检测到存在校对修改的内容，无需发送邮件")
+
+
+class NoTranslatorMemberError(ProjectRootError):
+    """
+    @apiDefine NoTranslatorMemberError
+    @apiError 4031 项目中未找到配置了邮箱的翻译成员
+    """
+
+    code = 4031
+    message = lazy_gettext("项目中未找到配置了邮箱的翻译成员")

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>[{{ project.name }}] 校对稿修改反馈</title>
+</head>
+<body style="margin: 0; padding: 20px 10px; background-color: #f4f6f8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #24292e;">
+<div style="max-width: 780px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #e1e4e8;">
+    
+    <!-- 头部横幅 -->
+    <div style="padding: 24px 24px 16px; border-bottom: 1px solid #eaecef; background: linear-gradient(to bottom, #ffffff, #fafbfc);">
+        <div style="font-size: 13px; color: #0969da; font-weight: 600; margin-bottom: 4px;">{{ site_name }} · 校对反馈</div>
+        <h2 style="margin: 0 0 8px; color: #1f2328; font-size: 20px;">{{ project.name }} · 校对修改稿</h2>
+        <div style="font-size: 13px; color: #57606a; line-height: 1.6;">
+            <span>目标语言：<strong style="color: #24292e;">{{ target_language_name }}</strong></span>
+            <span style="margin: 0 8px; color: #d0d7de;">|</span>
+            <span>校对反馈人：<strong style="color: #24292e;">{{ sender_name }}</strong></span>
+            <span style="margin: 0 8px; color: #d0d7de;">|</span>
+            <span>时间：{{ send_time }}</span>
+        </div>
+        <div style="background-color: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 14px; margin-top: 14px; font-size: 13px; color: #24292e;">
+            共挑出 <strong style="color: #cf222e;">{{ changed_pages|length }}</strong> 个页面存在校对修改，共计 <strong style="color: #cf222e;">{{ total_changed_labels }}</strong> 处标签变更。请查阅以下页面及高亮变更详情。
+        </div>
+    </div>
+
+    <!-- 页面列表 -->
+    <div style="padding: 16px 20px 24px;">
+        {% for page in changed_pages %}
+        <div style="margin-bottom: 24px; border: 1px solid #d0d7de; border-radius: 8px; overflow: hidden; background-color: #ffffff;">
+            <!-- 单页头部 -->
+            <div style="background-color: #f6f8fa; padding: 10px 16px; border-bottom: 1px solid #d0d7de; font-size: 14px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                    <div>
+                        <strong style="font-size: 15px; color: #1f2328;">第 {{ page.page_number }} 页</strong>
+                        <span style="color: #57606a; margin-left: 6px;">({{ page.file_name }})</span>
+                    </div>
+                    <div>
+                        <span style="background-color: #fff8c5; color: #9a6700; border: 1px solid #f1e05a; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px;">
+                            本页 {{ page.changed_count }} 处修改 (标签：#{{ page.changed_label_nums|join(', #') }})
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 标签列表表格 -->
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.5; text-align: left;">
+                    <thead>
+                        <tr style="background-color: #fafbfc; border-bottom: 1px solid #d0d7de; color: #57606a;">
+                            <th style="padding: 8px 10px; width: 60px; text-align: center;">序号</th>
+                            <th style="padding: 8px 10px; width: 22%;">原文</th>
+                            <th style="padding: 8px 10px; width: 25%;">翻译原稿</th>
+                            <th style="padding: 8px 10px;">校对稿（高亮差异）</th>
+                            <th style="padding: 8px 10px; width: 65px; text-align: center;">状态</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for label in page.labels %}
+                        {% if label.is_changed %}
+                        <tr style="background-color: #fffbe6; border-bottom: 1px solid #ffe58f;">
+                            <td style="padding: 10px; text-align: center; vertical-align: top;">
+                                <span style="display: inline-block; background-color: #ffe58f; color: #d46b08; font-weight: bold; padding: 2px 6px; border-radius: 4px; font-size: 12px;">#{{ label.label_num }}</span>
+                            </td>
+                            <td style="padding: 10px; color: #57606a; vertical-align: top; word-break: break-word;">{{ label.source_text }}</td>
+                            <td style="padding: 10px; color: #6e7781; text-decoration: line-through; vertical-align: top; word-break: break-word;">{{ label.orig_translation }}</td>
+                            <td style="padding: 10px; color: #1f2328; vertical-align: top; word-break: break-word;">{{ label.diff_html | safe }}</td>
+                            <td style="padding: 10px; text-align: center; vertical-align: top;">
+                                <span style="display: inline-block; background-color: #ff4d4f; color: #ffffff; font-weight: 600; padding: 1px 6px; border-radius: 3px; font-size: 11px;">已修改</span>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr style="background-color: #ffffff; border-bottom: 1px solid #f0f0f0; color: #8c8c8c;">
+                            <td style="padding: 8px 10px; text-align: center; vertical-align: top;">
+                                <span style="color: #bfbfbf;">#{{ label.label_num }}</span>
+                            </td>
+                            <td style="padding: 8px 10px; vertical-align: top; word-break: break-word;">{{ label.source_text }}</td>
+                            <td style="padding: 8px 10px; vertical-align: top; word-break: break-word;">{{ label.orig_translation }}</td>
+                            <td style="padding: 8px 10px; vertical-align: top; word-break: break-word;">{{ label.proofread_translation or label.orig_translation }}</td>
+                            <td style="padding: 8px 10px; text-align: center; vertical-align: top;">
+                                <span style="color: #bfbfbf; font-size: 11px;">无更改</span>
+                            </td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- 底部信息 -->
+    <div style="padding: 16px 24px; background-color: #fafbfc; border-top: 1px solid #eaecef; text-align: center; font-size: 12px; color: #57606a; line-height: 1.6;">
+        {% if reply_address %}
+        <div style="margin-bottom: 6px;">您可以直接回复本邮件与校对者沟通（回复地址：<a href="mailto:{{ reply_address }}" style="color: #0969da; text-decoration: none;">{{ reply_address }}</a>）。</div>
+        {% endif %}
+        {% if project_url %}
+        <div style="margin-bottom: 8px;">
+            <a href="{{ project_url }}" target="_blank" style="display: inline-block; background-color: #0969da; color: #ffffff; padding: 6px 14px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 500;">
+                前往项目详情查看
+            </a>
+        </div>
+        {% endif %}
+        <div style="color: #8c959f;">{{ site_name }} · 在线翻译协作平台</div>
+    </div>
+</div>
+</body>
+</html>

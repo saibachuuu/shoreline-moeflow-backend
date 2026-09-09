@@ -22,6 +22,7 @@ def email_task(
     reply_address=None,
     from_address=None,
     from_username=None,
+    cc_address=None,
 ):
     """发送邮件"""
     if not celery.conf.app_config["ENABLE_USER_EMAIL"]:
@@ -39,19 +40,47 @@ def email_task(
         from_username = email_username
     if reply_address is None:
         reply_address = email_reply_address
+    # 处理收件人和抄送地址
+    if isinstance(to_address, (list, tuple, set)):
+        to_list = [str(addr).strip() for addr in to_address if addr and str(addr).strip()]
+    elif to_address and str(to_address).strip():
+        to_list = [str(to_address).strip()]
+    else:
+        to_list = []
+
+    if isinstance(cc_address, (list, tuple, set)):
+        cc_list = [str(addr).strip() for addr in cc_address if addr and str(addr).strip()]
+    elif cc_address and str(cc_address).strip():
+        cc_list = [str(cc_address).strip()]
+    else:
+        cc_list = []
+
+    # 去重保持顺序
+    envelope_recipients = []
+    for addr in to_list + cc_list:
+        if addr not in envelope_recipients:
+            envelope_recipients.append(addr)
+
+    if not envelope_recipients:
+        return "发送失败，无收件人地址"
+
     # 构建alternative结构
     msg = MIMEMultipart("alternative")
     msg["Subject"] = Header(subject).encode()
     msg["From"] = "%s <%s>" % (Header(from_username).encode(), from_address)
-    msg["To"] = (
-        to_address  # 收件人地址或是地址列表，支持多个收件人，最多30个 ['***', '***']
-    )
+    if to_list:
+        msg["To"] = ", ".join(to_list)
+    elif cc_list:
+        msg["To"] = ", ".join(cc_list)
+    if cc_list:
+        msg["Cc"] = ", ".join(cc_list)
     msg["Reply-to"] = reply_address  # 自定义的回复地址
     msg["Message-id"] = email.utils.make_msgid()
     msg["Date"] = email.utils.formatdate()
     # 构建alternative的text/html部分
-    text_html = MIMEText(html_content.encode(), _subtype="html", _charset="UTF-8")
-    msg.attach(text_html)
+    if html_content:
+        text_html = MIMEText(html_content.encode(), _subtype="html", _charset="UTF-8")
+        msg.attach(text_html)
     # 构建alternative的text/plain部分
     if text_content:
         text_plain = MIMEText(text_content.encode(), _subtype="plain", _charset="UTF-8")
@@ -75,7 +104,7 @@ def email_task(
         # 发件人和认证地址必须一致
         # 备注：若想取到DATA命令返回值,可参考smtplib的sendmaili封装方法:
         #      使用SMTP.mail/SMTP.rcpt/SMTP.data方法
-        client.sendmail(from_address, to_address, msg.as_string())
+        client.sendmail(from_address, envelope_recipients, msg.as_string())
         client.quit()
         return "发送成功"
     except smtplib.SMTPConnectError as e:
@@ -104,6 +133,7 @@ def send_email(
     from_username=None,
     template=None,
     template_data=None,
+    cc_address=None,
 ):
     # 如果提供了模板，则使用模板创建内容
     if template:
@@ -117,4 +147,5 @@ def send_email(
         reply_address,
         from_address,
         from_username,
+        cc_address,
     )

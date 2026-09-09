@@ -1,0 +1,34 @@
+[{{ site_name }}] {{ project.name }} · 校对修改稿反馈
+==================================================
+
+目标语言：{{ target_language_name }}
+校对反馈人：{{ sender_name }}
+发送时间：{{ send_time }}
+
+概览：共挑出 {{ changed_pages|length }} 个页面存在校对修改，共计 {{ total_changed_labels }} 处标签变更。
+
+--------------------------------------------------
+{% for page in changed_pages %}
+【第 {{ page.page_number }} 页】{{ page.file_name }} ({{ page.changed_count }} 处修改)
+{% for label in page.labels %}
+{% if label.is_changed %}
+* [#{{ label.label_num }}] [已修改]
+  原文：{{ label.source_text }}
+  原译：{{ label.orig_translation }}
+  校对：{{ label.proofread_translation }}
+{% else %}
+  [#{{ label.label_num }}] {{ label.proofread_translation or label.orig_translation }}
+{% endif %}
+{% endfor %}
+
+--------------------------------------------------
+{% endfor %}
+
+{% if reply_address %}
+可以直接回复本邮件以与校对者沟通 ({{ reply_address }})。
+{% endif %}
+{% if project_url %}
+项目地址：{{ project_url }}
+{% endif %}
+
+{{ site_name }} · 在线翻译协作平台

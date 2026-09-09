@@ -294,3 +294,8 @@ class TeamInsightUserListSchema(DefaultSchema):
 
 class TeamInsightProjectListSchema(DefaultSchema):
     word = fields.Str(missing=None)
+
+
+class SendProofreadDraftSchema(DefaultSchema):
+    cc_myself = fields.Bool(missing=True)
+    file_id = fields.Str(missing=None, validate=[object_id])

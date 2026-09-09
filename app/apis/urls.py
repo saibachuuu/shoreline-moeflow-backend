@@ -34,6 +34,7 @@ from app.apis.project import (
     ProjectAPI,
     ProjectOCRAPI,
     ProjectOutputListAPI,
+    ProjectSendProofreadDraftAPI,
     ProjectTargetListAPI,
     ProjectTargetOutputListAPI,
     ProjectThumbnailAPI,
@@ -412,6 +413,11 @@ project.add_url_rule(
     "/<project_id>/targets/<target_id>/outputs",
     methods=["GET", "POST", "OPTIONS"],
     view_func=ProjectTargetOutputListAPI.as_view("project_output_list"),
+)
+project.add_url_rule(
+    "/<project_id>/targets/<target_id>/send-proofread-draft",
+    methods=["POST", "OPTIONS"],
+    view_func=ProjectSendProofreadDraftAPI.as_view("project_send_proofread_draft"),
 )
 project.add_url_rule(
     "/<project_id>/ocr",
