@@ -39,6 +39,12 @@ from app.apis.project import (
     ProjectThumbnailAPI,
 )
 from app.apis.project_set import ProjectSetAPI
+from app.apis.presence import (
+    ProjectPresenceAPI,
+    ProjectPresenceHeartbeatAPI,
+    ProjectPresenceLeaveAPI,
+    TeamProjectsActivePresenceAPI,
+)
 
 # from app.apis.role import RoleAPI, RoleListAPI
 from app.apis.archive_import import ArchiveImportAPI, ArchiveImportTaskAPI
@@ -335,6 +341,11 @@ team.add_url_rule(
     view_func=TeamInsightProjectListAPI.as_view("project_insights"),
 )
 team.add_url_rule(
+    "/<team_id>/projects/active-presence",
+    methods=["GET", "OPTIONS"],
+    view_func=TeamProjectsActivePresenceAPI.as_view("team_projects_active_presence"),
+)
+team.add_url_rule(
     "/<team_id>/insight/users/<user_id>/projects",
     methods=["GET", "OPTIONS"],
     view_func=TeamInsightUserProjectListAPI.as_view("user_insights_projects"),
@@ -421,6 +432,21 @@ project.add_url_rule(
     "/<project_id>/import-task/dismiss",
     methods=["POST", "OPTIONS"],
     view_func=ArchiveImportTaskAPI.as_view("archive_import_task_dismiss"),
+)
+project.add_url_rule(
+    "/<project_id>/presence/heartbeat",
+    methods=["POST", "OPTIONS"],
+    view_func=ProjectPresenceHeartbeatAPI.as_view("project_presence_heartbeat"),
+)
+project.add_url_rule(
+    "/<project_id>/presence/leave",
+    methods=["POST", "OPTIONS"],
+    view_func=ProjectPresenceLeaveAPI.as_view("project_presence_leave"),
+)
+project.add_url_rule(
+    "/<project_id>/presence",
+    methods=["GET", "OPTIONS"],
+    view_func=ProjectPresenceAPI.as_view("project_presence"),
 )
 # 文件模块
 file = Blueprint("file", __name__, url_prefix=v1_prefix + "/files")
