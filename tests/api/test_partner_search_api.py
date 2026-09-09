@@ -1,10 +1,11 @@
+import os
 from bson import ObjectId
 
 from app.constants.project import ProjectStatus
 from app.models.partner_search import PartnerSearchThrottle
 from app.models.project import Project
 from app.models.site_setting import SiteSetting
-from tests import MoeAPITestCase
+from tests import MoeAPITestCase, TEST_FILE_PATH
 
 
 class TestPartnerSearchAPI(MoeAPITestCase):
@@ -147,6 +148,46 @@ class TestPartnerSearchAPI(MoeAPITestCase):
         self.assertErrorEqual(data)
         self.assertEqual(data.json["total"], 1)
 
+
+    def test_search_returns_none_thumbnail_when_no_images(self):
+        project = self._create_team_project("无图作品")
+        self._enable(team_ids=self._all_team_ids([project]))
+        data = self._post_search({"keyword": "无图作品"})
+        self.assertErrorEqual(data)
+        item = data.json["projects"][0]
+        self.assertIn("thumbnail_url", item)
+        self.assertIn("cover_url", item)
+        self.assertIsNone(item["thumbnail_url"])
+        self.assertIsNone(item["cover_url"])
+
+    def test_search_returns_first_page_thumbnail_url(self):
+        project = self._create_team_project("有图作品")
+        self._enable(team_ids=self._all_team_ids([project]))
+        with open(os.path.join(TEST_FILE_PATH, "2kb.png"), "rb") as file:
+            img1 = project.upload("001.png", file)
+        with open(os.path.join(TEST_FILE_PATH, "2kb.png"), "rb") as file:
+            project.upload("002.png", file)
+        data = self._post_search({"keyword": "有图作品"})
+        self.assertErrorEqual(data)
+        item = data.json["projects"][0]
+        self.assertIn("thumbnail_url", item)
+        self.assertIn("cover_url", item)
+        self.assertIsNotNone(item["thumbnail_url"])
+        self.assertEqual(item["thumbnail_url"], img1.cover_url)
+        self.assertEqual(item["cover_url"], img1.cover_url)
+
+    def test_search_picks_first_page_by_sort_order(self):
+        project = self._create_team_project("排序作品")
+        self._enable(team_ids=self._all_team_ids([project]))
+        with open(os.path.join(TEST_FILE_PATH, "2kb.png"), "rb") as file:
+            img2 = project.upload("002.png", file)
+        with open(os.path.join(TEST_FILE_PATH, "2kb.png"), "rb") as file:
+            img1 = project.upload("001.png", file)
+        data = self._post_search({"keyword": "排序作品"})
+        self.assertErrorEqual(data)
+        item = data.json["projects"][0]
+        self.assertEqual(item["thumbnail_url"], img1.cover_url)
+        self.assertNotEqual(item["thumbnail_url"], img2.cover_url)
     def tearDown(self):
         try:
             PartnerSearchThrottle.drop_collection()

@@ -11,6 +11,7 @@ import logging
 from bson import ObjectId
 from flask import request
 
+from app.constants.file import FileType
 from app.constants.project import ProjectStatus
 from app.core.api import APIError
 from app.core.views import MoeAPIView
@@ -73,6 +74,8 @@ class PartnerSearchEntryAPI(MoeAPIView):
         @apiSuccess {Number} projects.status 项目状态
         @apiSuccess {Object} projects.team_id 所属团队 ID
         @apiSuccess {String} projects.team_name 所属团队名
+        @apiSuccess {String} [projects.thumbnail_url] 第一页缩略图 URL（预览）
+        @apiSuccess {String} [projects.cover_url] 第一页缩略图 URL（预览，同 thumbnail_url）
         """
         site_setting = SiteSetting.get()
         if not site_setting.partner_search_enabled:
@@ -149,6 +152,19 @@ class PartnerSearchEntryAPI(MoeAPIView):
         data = []
         for project in projects:
             team = team_cache.get(str(project.team.pk))
+            first_image = project.files(type_only=FileType.IMAGE).first()
+            thumbnail_url = None
+            if first_image:
+                try:
+                    cover_url = first_image.cover_url
+                    if cover_url and cover_url != "generating":
+                        thumbnail_url = cover_url
+                except Exception as e:
+                    logger.warning(
+                        "Failed to get thumbnail url for project %s: %s",
+                        project.id,
+                        e,
+                    )
             data.append(
                 {
                     "id": str(project.id),
@@ -159,6 +175,8 @@ class PartnerSearchEntryAPI(MoeAPIView):
                     "intro": project.intro,
                     "team_id": str(team.id) if team else None,
                     "team_name": team.name if team else None,
+                    "thumbnail_url": thumbnail_url,
+                    "cover_url": thumbnail_url,
                 }
             )
         return {
