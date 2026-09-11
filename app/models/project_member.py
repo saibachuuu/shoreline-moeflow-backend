@@ -20,6 +20,22 @@ from app.utils.search import normalize_search_text
 PROJECT_MEMBER_STATUSES = frozenset(("active", "invited", "removed"))
 
 
+class _LegacyTagsField(ListField):
+    """A tag list that tolerates documents stored without the field.
+
+    MongoEngine applies a field default when a document is constructed, not
+    when one is loaded, so a legacy row that never stored ``tags`` hands
+    readers ``None`` instead of ``[]``. Every consumer iterates or
+    membership-tests this field, so it must read as an empty list.
+    """
+
+    def __get__(self, instance, owner):
+        value = super().__get__(instance, owner)
+        if instance is not None and value is None:
+            return []
+        return value
+
+
 class ProjectMember(Document):
     INDEX_DEFINITIONS = (
         (
@@ -84,7 +100,7 @@ class ProjectMember(Document):
     identity_key = StringField(required=True, db_field="ik")
     display_name = StringField(required=True, min_length=1, max_length=140)
     display_name_search = StringField(default="", db_field="dns")
-    tags = ListField(StringField(), default=list)
+    tags = _LegacyTagsField(StringField(), default=list)
     status = StringField(default="active", choices=tuple(PROJECT_MEMBER_STATUSES))
     create_time = DateTimeField(default=datetime.datetime.utcnow)
     edit_time = DateTimeField(default=datetime.datetime.utcnow)

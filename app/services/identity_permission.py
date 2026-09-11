@@ -342,7 +342,7 @@ class IdentityPermissionService:
             if member.status == "active":
                 for tag, tag_permissions in cls._permissions_for_tags_with_policy(
                     project.team,
-                    member.tags,
+                    member.tags or [],
                     scope="project",
                     policy=policy,
                 ).items():
@@ -355,14 +355,14 @@ class IdentityPermissionService:
             and project.owner_user == user
             and member is not None
             and member.status == "active"
-            and "creator" in member.tags
+            and "creator" in (member.tags or ())
         )
         return PermissionSnapshot(
             project_member_id=str(member.id) if member else None,
             user_id=str(user.id),
             project_id=str(project.id),
             team_id=str(project.team.id),
-            source_tags=tuple(member.tags) if member else (),
+            source_tags=tuple(member.tags or ()) if member else (),
             effective_permissions=frozenset(permissions),
             permission_sources={key: tuple(value) for key, value in sources.items()},
             is_owner=owner,
@@ -476,7 +476,7 @@ class IdentityPermissionService:
         return (
             member is not None
             and member.status == "active"
-            and "creator" in member.tags
+            and "creator" in (member.tags or ())
         )
 
     @classmethod
@@ -490,6 +490,21 @@ class IdentityPermissionService:
         return relation is not None and relation.base_tag == "creator"
 
     @classmethod
+    def can_assign_project_tags(cls, operator, project, target) -> bool:
+        """Whether the operator may assign any project tag to the target."""
+
+        return bool(cls.assignable_project_tags(operator, project, target))
+
+    @staticmethod
+    def qualification_check_disabled(project) -> bool:
+        """Whether the team turned the worker-qualification check off (``open``)."""
+
+        team = getattr(project, "team", None)
+        if team is None:
+            return False
+        return getattr(team, "worker_qualification_mode", "qualified") == "open"
+
+    @classmethod
     def assignable_project_tags(cls, operator, project, target) -> set[str]:
         """Return the tags the operator may assign to a target member."""
 
@@ -499,8 +514,30 @@ class IdentityPermissionService:
         team_base = team_relation.base_tag if team_relation else None
         manager = project_manager or team_base in ("creator", "admin")
         if not manager:
+            if cls.qualification_check_disabled(project):
+                # Open mode disables the worker-qualification check, so an
+                # ordinary team member may position any member.
+                assignable = set(WORKER_TAGS)
+                assignable.update(
+                    code
+                    for code, definition in cls._policy_data(
+                        project.team, "project"
+                    ).items()
+                    if definition.get("assignable", True)
+                    and code not in ("admin", "creator")
+                )
+                return assignable
             if target_user is not None and target_user == operator:
-                return set(PROJECT_TAGS[2:])
+                assignable = set(WORKER_TAGS)
+                assignable.update(
+                    code
+                    for code, definition in cls._policy_data(
+                        project.team, "project"
+                    ).items()
+                    if definition.get("assignable", True)
+                    and code not in ("admin", "creator")
+                )
+                return assignable
             return set()
         assignable = set(WORKER_TAGS)
         assignable.update(

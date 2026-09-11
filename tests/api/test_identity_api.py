@@ -1672,3 +1672,104 @@ class IdentityAPITestCase(MoeAPITestCase):
         self.assertEqual("", relation.reload().default_display_name)
         pm.reload()
         self.assertEqual("初始别名", pm.display_name)
+
+    def test_member_self_claim_directly_activates(self):
+        project = self.create_project("self-claim-proj")
+        team = project.team
+        user = self.create_user("self-claim-user")
+        self._add_team_member(team, user, qualifications=["translator"])
+
+        response = self.post(
+            f"/v1/projects/{project.id}/members/changes",
+            token=user.generate_token(),
+            json={
+                "operations": [
+                    {
+                        "operation_id": "op-self-claim",
+                        "action": "add",
+                        "user_id": str(user.id),
+                        "display_name": "self-claim-user",
+                        "tags": ["translator"],
+                    }
+                ]
+            },
+        )
+        self.assertErrorEqual(response)
+        member = ProjectMember.objects(project=project, user=user).first()
+        self.assertIsNotNone(member)
+        self.assertEqual("active", member.status)
+        self.assertEqual(["translator"], member.tags)
+        # Ensure no pending invitation was generated for oneself
+        invitation = Invitation.objects(
+            group=project, user=user, status=InvitationStatus.PENDING
+        ).first()
+        self.assertIsNone(invitation)
+
+    def test_open_mode_ordinary_member_can_invite_others(self):
+        project = self.create_project("open-invite-proj")
+        team = project.team
+        team.worker_qualification_mode = "open"
+        team.save()
+
+        operator = self.create_user("open-op")
+        target = self.create_user("open-target")
+        self._add_team_member(team, operator)
+        self._add_team_member(team, target)
+
+        response = self.post(
+            f"/v1/projects/{project.id}/members/changes",
+            token=operator.generate_token(),
+            json={
+                "operations": [
+                    {
+                        "operation_id": "op-open-invite",
+                        "action": "add",
+                        "user_id": str(target.id),
+                        "display_name": "open-target",
+                        "tags": ["translator"],
+                    }
+                ]
+            },
+        )
+        self.assertErrorEqual(response)
+        member = ProjectMember.objects(project=project, user=target).first()
+        self.assertIsNotNone(member)
+        self.assertEqual("invited", member.status)
+        self.assertEqual(["translator"], member.tags)
+        invitation = Invitation.objects(
+            group=project, user=target, status=InvitationStatus.PENDING
+        ).first()
+        self.assertIsNotNone(invitation)
+
+    def test_project_member_without_tags_does_not_crash_project_endpoints(self):
+        project = self.create_project("missing-tags-proj")
+        team = project.team
+        user = self.create_user("missing-tags-user")
+        self._add_team_member(team, user, qualifications=["translator"])
+
+        # Insert a raw document that completely lacks the "tags" field
+        raw_doc = {
+            "project": project.id,
+            "user": user.id,
+            "ik": f"{project.id}:u:{user.id}",
+            "display_name": "missing-tags-user",
+            "dns": "missing-tags-user",
+            "status": "active",
+            "version": 0,
+        }
+        ProjectMember._get_collection().insert_one(raw_doc)
+
+        token = user.generate_token()
+        # GET /v1/user/projects
+        user_projects_resp = self.get("/v1/user/projects", token=token)
+        self.assertErrorEqual(user_projects_resp)
+        self.assertEqual(200, user_projects_resp.status_code)
+
+        # GET /v1/teams/<team_id>/projects
+        team_projects_resp = self.get(
+            f"/v1/teams/{team.id}/projects?status=NORMAL&mode=search-project-name",
+            token=token,
+        )
+        self.assertErrorEqual(team_projects_resp)
+        self.assertEqual(200, team_projects_resp.status_code)
+

@@ -319,14 +319,54 @@ class ProjectMemberService:
         operation_id=None,
     ):
         existing = cls.for_user(project, user)
+        team_relation = IdentityPermissionService.is_active_team_member(
+            operator, project.team
+        )
+        team_creator = team_relation is not None and team_relation.base_tag == "creator"
+        manager = cls._is_manager(operator, project)
+        can_open = IdentityPermissionService.qualification_check_disabled(project)
+
         if existing is not None and existing.status in ("active", "invited"):
             if operation_id and existing.status == "invited":
                 cls._check_add_state(project, external=False)
-                manager = cls._is_manager(operator, project)
-                if tags and not manager:
+                if tags and not manager and operator != user and not can_open:
                     raise NoPermissionError
                 tags = cls._validate_tags(operator, project, user, tags)
                 display_name = cls._add_user_display_name(project, user, display_name)
+                if team_creator or operator == user:
+                    before = _member_state(existing)
+                    previous_version = existing.version
+                    existing.status = "active"
+                    existing.tags = tags
+                    existing.display_name = display_name
+                    existing.removed_time = None
+                    existing.edit_time = _now()
+                    existing.version += 1
+                    try:
+                        existing.save(save_condition={"version": previous_version})
+                    except SaveConditionError:
+                        raise ProjectMemberVersionConflictError
+                    cls._sync_count(project)
+                    record_audit(
+                        actor=operator,
+                        scope="project",
+                        action="project_member_add",
+                        project=project,
+                        member=existing,
+                        target_user=user,
+                        before=before,
+                        after=_member_state(existing),
+                        source="runtime",
+                        request_id=request_id,
+                    )
+                    if operator == user:
+                        from app.models.invitation import Invitation, InvitationStatus
+
+                        Invitation.objects(
+                            user=user, group=project, status=InvitationStatus.PENDING
+                        ).update(set__status=InvitationStatus.ALLOW)
+                    return existing
+
                 from app.services.project_invitation import ProjectInvitationAdapter
 
                 return ProjectInvitationAdapter.create_or_reuse(
@@ -339,8 +379,7 @@ class ProjectMemberService:
                 )
             raise MemberAlreadyExistsError
         cls._check_add_state(project, external=False)
-        manager = cls._is_manager(operator, project)
-        if tags and not manager:
+        if tags and not manager and operator != user and not can_open:
             raise NoPermissionError
         tags = cls._validate_tags(operator, project, user, tags)
         # Capacity is checked whenever this operation adds one active member,
@@ -367,11 +406,7 @@ class ProjectMemberService:
             existing.display_name = display_name
             existing.tags = tags
 
-        team_relation = IdentityPermissionService.is_active_team_member(
-            operator, project.team
-        )
-        team_creator = team_relation is not None and team_relation.base_tag == "creator"
-        if team_creator:
+        if team_creator or operator == user:
             before = _member_state(existing) if existing.id else {}
             previous_version = existing.version if existing.id else None
             existing.status = "active"
@@ -398,6 +433,12 @@ class ProjectMemberService:
                 source="runtime",
                 request_id=request_id,
             )
+            if operator == user:
+                from app.models.invitation import Invitation, InvitationStatus
+
+                Invitation.objects(
+                    user=user, group=project, status=InvitationStatus.PENDING
+                ).update(set__status=InvitationStatus.ALLOW)
             return existing
 
         # All other registration-user additions go through the old invitation
@@ -537,8 +578,10 @@ class ProjectMemberService:
             raise InvalidIdentityRequestError("only status=removed is supported")
 
         manager = cls._is_manager(operator, project)
+        can_open = IdentityPermissionService.qualification_check_disabled(project)
         if member.user != operator and not manager:
-            raise NoPermissionError
+            if not (can_open and "tags" in changes and set(changes) == {"tags"}):
+                raise NoPermissionError
         if member.user is None and not manager:
             raise NoPermissionError
         if (
