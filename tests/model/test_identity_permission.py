@@ -218,7 +218,7 @@ class IdentityPermissionTestCase(MoeTestCase):
         self.assertFalse(refreshed.has("project:CHECK_TRA"))
         self.assertTrue(refreshed.has("project:ADD_LABEL"))
 
-    def test_only_project_or_team_creator_can_assign_project_admin(self):
+    def test_project_and_team_admins_can_assign_project_admin(self):
         project = self.create_project("permission-admin-assignment-boundary")
         team = project.team
         creator = self.get_creator(team)
@@ -232,35 +232,53 @@ class IdentityPermissionTestCase(MoeTestCase):
         team_admin = self.create_user("permission-team-admin")
         self._add_team_member(team, team_admin, base_tag="admin")
 
+        regular_member = self.create_user("permission-regular-member")
+        self._add_team_member(team, regular_member, base_tag="member")
+
         target = self.create_user("permission-admin-target")
         self._add_team_member(team, target)
 
-        self.assertNotIn(
+        self.assertIn(
             "admin",
             IdentityPermissionService.assignable_project_tags(
                 project_admin, project, target
             ),
         )
-        self.assertNotIn(
+        self.assertIn(
             "admin",
             IdentityPermissionService.assignable_project_tags(
                 team_admin, project, target
             ),
         )
-        with self.assertRaises(InvalidIdentityTagError):
+        self.assertEqual(
+            ["admin"],
             IdentityPermissionService.validate_project_tags(
                 project_admin, project, target, ["admin"]
-            )
-        with self.assertRaises(InvalidIdentityTagError):
+            ),
+        )
+        self.assertEqual(
+            ["admin"],
             IdentityPermissionService.validate_project_tags(
                 team_admin, project, target, ["admin"]
-            )
+            ),
+        )
         self.assertIn(
             "admin",
             IdentityPermissionService.assignable_project_tags(
                 creator, project, target
             ),
         )
+
+        self.assertNotIn(
+            "admin",
+            IdentityPermissionService.assignable_project_tags(
+                regular_member, project, target
+            ),
+        )
+        with self.assertRaises(InvalidIdentityTagError):
+            IdentityPermissionService.validate_project_tags(
+                regular_member, project, target, ["admin"]
+            )
 
     def test_removed_project_member_keeps_no_access_even_with_team_admin(self):
         project = self.create_project("permission-removed-member-admin")

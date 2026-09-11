@@ -508,8 +508,7 @@ class IdentityPermissionService:
             for code, definition in cls._policy_data(project.team, "project").items()
             if definition.get("assignable", True)
         )
-        if cls.is_project_creator(operator, project) or team_base == "creator":
-            assignable.add("admin")
+        assignable.add("admin")
         return assignable
 
     @classmethod
@@ -547,10 +546,13 @@ class IdentityPermissionService:
                 "admin",
             }:
                 raise InvalidIdentityTagError
-        if "admin" in normalized and not (
-            cls.is_project_creator(operator, project)
+        is_admin_or_creator = (
+            cls.is_project_manager(operator, project)
+            or cls.is_team_manager(operator, project.team)
+            or cls.is_project_creator(operator, project)
             or cls.is_team_creator(operator, project.team)
-        ):
+        )
+        if "admin" in normalized and not is_admin_or_creator:
             raise InvalidIdentityTagError
         assignable = cls.assignable_project_tags(operator, project, target_user)
         if allow_creator:

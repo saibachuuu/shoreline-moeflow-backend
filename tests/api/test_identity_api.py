@@ -624,6 +624,67 @@ class IdentityAPITestCase(MoeAPITestCase):
         member.reload()
         self.assertEqual([], member.tags)
 
+    def test_team_admin_can_assign_admin_tag_in_project_members_changes(self):
+        """非团队创建者的管理员调用 /members/changes 传入 admin tag 时允许通行。"""
+        project = self.create_project("api-team-admin-assign-admin")
+        admin_user = self.create_user("api-team-admin-operator")
+        self._add_team_member(project.team, admin_user, base_tag="admin")
+
+        # 团队管理员加入项目时自动赋予 tags=["admin"]
+        member = ProjectMemberService.add(
+            project,
+            admin_user,
+            {
+                "user_id": str(admin_user.id),
+                "display_name": admin_user.name,
+                "tags": ["admin"],
+            },
+        )
+        self.assertEqual(["admin"], member.tags)
+
+        # 团队管理员在编辑成员时保留 admin 并添加 worker tag（如 translator）
+        response = self.post(
+            f"/v1/projects/{project.id}/members/changes",
+            token=admin_user.generate_token(),
+            json={
+                "operations": [
+                    {
+                        "operation_id": "api-team-admin-update-self-admin-translator",
+                        "action": "update",
+                        "member_id": str(member.id),
+                        "expected_member_version": member.version,
+                        "changes": {"tags": ["admin", "translator"]},
+                    }
+                ]
+            },
+        )
+        self.assertErrorEqual(response)
+        member.reload()
+        self.assertEqual(["admin", "translator"], member.tags)
+
+        # 团队管理员也可以给其他成员分配 admin tag
+        other_user = self.create_user("api-team-admin-target-user")
+        self._add_team_member(project.team, other_user, base_tag="member")
+        add_response = self.post(
+            f"/v1/projects/{project.id}/members/changes",
+            token=admin_user.generate_token(),
+            json={
+                "operations": [
+                    {
+                        "operation_id": "api-team-admin-add-other-admin",
+                        "action": "add",
+                        "user_id": str(other_user.id),
+                        "display_name": "目标用户",
+                        "tags": ["admin"],
+                    }
+                ]
+            },
+        )
+        self.assertErrorEqual(add_response)
+        other_member = ProjectMember.objects(project=project, user=other_user).first()
+        self.assertIsNotNone(other_member)
+        self.assertEqual(["admin"], other_member.tags)
+
     def test_identity_object_endpoints_reject_non_object_json(self):
         project = self.create_project("api-malformed-identity-json")
         team = project.team
