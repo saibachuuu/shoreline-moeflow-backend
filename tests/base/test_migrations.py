@@ -80,11 +80,11 @@ class MigrationRunnerTestCase(MoeTestCase):
         legacy_text_id = db.file.insert_one({"t": 3, "n": "legacy-text"}).inserted_id
 
         self.assertEqual(
-            ["0000", "0001", "0002", "0003", "0004", "0005", "0006"],
+            ["0000", "0001", "0002", "0003", "0004", "0005", "0006", "0007"],
             [migration.version for migration in pending(db)],
         )
         self.assertEqual(
-            ["0000", "0001", "0002", "0003", "0004", "0005", "0006"],
+            ["0000", "0001", "0002", "0003", "0004", "0005", "0006", "0007"],
             [migration.version for migration in run_pending(db)],
         )
         self.assertEqual([], run_pending(db))
@@ -1116,7 +1116,7 @@ class MigrationRunnerTestCase(MoeTestCase):
 
         # 迁移确实没有被执行，门禁才有意义。
         self.assertEqual(
-            ["0000", "0001", "0002", "0003", "0004", "0005", "0006"],
+            ["0000", "0001", "0002", "0003", "0004", "0005", "0006", "0007"],
             [migration.version for migration in pending(db)],
         )
 

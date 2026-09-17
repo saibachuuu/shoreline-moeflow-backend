@@ -102,12 +102,12 @@ class CreateProjectSchema(DefaultSchema):
         try:
             in_data["source_language"] = Language.by_code(in_data["source_language"])
         except LanguageNotExistError as e:
-            raise ValidationError(e.message, ["source_language"])
+            raise ValidationError(e.message, field_name="source_language")
         # 获取目标语言
         try:
             in_data["target_languages"] = Language.by_codes(in_data["target_languages"])
         except LanguageNotExistError as e:
-            raise ValidationError(e.message, ["target_languages"])
+            raise ValidationError(e.message, field_name="target_languages")
         return in_data
 
 
@@ -185,12 +185,12 @@ class ImportProjectSchema(DefaultSchema):
         try:
             in_data["source_language"] = Language.by_code(in_data["source_language"])
         except LanguageNotExistError as e:
-            raise ValidationError(e.message, ["source_language"])
+            raise ValidationError(e.message, field_name="source_language")
         # 获取目标语言
         try:
             in_data["output_language"] = Language.by_code(in_data["output_language"])
         except LanguageNotExistError as e:
-            raise ValidationError(e.message, ["output_language"])
+            raise ValidationError(e.message, field_name="output_language")
         return in_data
 
 
