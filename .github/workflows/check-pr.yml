@@ -33,7 +33,7 @@ jobs:
         cache: 'pip'
     - run: |
         sudo apt-get install --yes libjpeg-dev libz-dev python3-dev libfreetype-dev build-essential
-    - run: pip install -r requirements.txt
+    - run: pip install -r requirements-dev.txt
     - run: cp -rv .env.test.sample .env.test
     - uses: pavelzw/pytest-action@v2
       with:
