@@ -80,6 +80,7 @@ from app.apis.identity import (
     ProjectCompleteAPI,
     ProjectMemberBindAPI,
     ProjectMemberChangesAPI,
+    ProjectMemberHardDeleteAPI,
     ProjectMemberListAPI,
     ProjectMemberMergeAPI,
     ProjectOwnerTransferAPI,
@@ -224,6 +225,11 @@ identity.add_url_rule(
     "/projects/<project_id>/members/<member_id>/merge",
     methods=["POST", "OPTIONS"],
     view_func=ProjectMemberMergeAPI.as_view("project_member_merge"),
+)
+identity.add_url_rule(
+    "/projects/<project_id>/members/<member_id>",
+    methods=["DELETE", "OPTIONS"],
+    view_func=ProjectMemberHardDeleteAPI.as_view("project_member_hard_delete"),
 )
 identity.add_url_rule(
     "/projects/<project_id>/owner/transfer",

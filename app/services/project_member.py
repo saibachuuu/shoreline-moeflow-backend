@@ -678,11 +678,11 @@ class ProjectMemberService:
         if member.version != expected:
             raise ProjectMemberVersionConflictError
         if (
-            member.status != "active"
+            member.status not in ("active", "removed")
             or member.user is not None
             or not member.external_id
         ):
-            raise InvalidIdentityRequestError("only an active external member can bind")
+            raise InvalidIdentityRequestError("only an external member can bind")
         user = cls._find_user(payload.get("user_id"))
         if user is None:
             raise IdentityUserNotFoundError
@@ -690,13 +690,32 @@ class ProjectMemberService:
             raise NoPermissionError
         other = cls.for_user(project, user)
         if other is not None:
-            raise MemberMergeRequiredError
+            # The target registered user already has a project member record
+            # (typically a migration duplicate: an external alias and a
+            # registered member sharing the same display name).  Instead of
+            # refusing with MEMBER_MERGE_REQUIRED, automatically merge the
+            # external alias into the existing registered member: union the
+            # job tags, adopt the external alias's display name, and hard-delete
+            # the external member record.
+            return cls._bind_merge_into_user(
+                project,
+                operator,
+                member,
+                other,
+                user,
+                request_id=request_id,
+            )
         tags = cls._validate_tags(operator, project, user, member.tags)
         before = _member_state(member)
         old_external_id = member.external_id
         member.user = user
         member.external_id = None
         member.tags = tags
+        # Binding revives a soft-removed external member: the record becomes a
+        # regular registered member again (the removed state only ever applied
+        # to the external alias, which no longer exists after the bind).
+        member.status = "active"
+        member.removed_time = None
         member.version += 1
         member.edit_time = _now()
         try:
@@ -718,6 +737,127 @@ class ProjectMemberService:
             request_id=request_id,
         )
         return member, event
+
+    @classmethod
+    def _bind_merge_into_user(
+        cls,
+        project,
+        operator,
+        source,
+        target,
+        user,
+        *,
+        request_id=None,
+    ):
+        """Merge an external alias into an existing registered member on bind.
+
+        The external ``source`` member is hard-deleted (not soft-removed) and
+        its job tags are unioned into ``target``; ``target`` adopts the
+        external alias's display name.  This is the automatic counterpart to
+        the explicit merge dialog: binding a registered user who already has a
+        project member record should converge the duplicate instead of asking
+        the operator to merge by hand.
+        """
+        if (
+            source.status not in ("active", "removed")
+            or source.user is not None
+            or not source.external_id
+        ):
+            raise InvalidIdentityRequestError("only an external member can bind")
+        if target.status not in ("active", "invited") or target.user is None:
+            raise InvalidIdentityRequestError(
+                "target must be a registered project member"
+            )
+        if (
+            IdentityPermissionService.is_active_team_member(target.user, project.team)
+            is None
+        ):
+            raise NoPermissionError
+
+        merged_tags = sorted(set(target.tags or []) | set(source.tags or []))
+        # The target may be the project owner (creator tag).  Allow the creator
+        # tag through validation so merging an external alias into the owner
+        # does not trip the protected-tag guard; the owner invariant below
+        # still refuses to strip it.
+        is_owner_target = (
+            project.owner_user is not None and project.owner_user == target.user
+        )
+        tags = cls._validate_tags(
+            operator,
+            project,
+            target.user,
+            merged_tags,
+            allow_creator=is_owner_target,
+        )
+        # Owner invariant: never strip the creator tag from the current owner.
+        if is_owner_target:
+            if "creator" not in set(tags):
+                raise MemberAlreadyOwnerError
+
+        before_source = _member_state(source)
+        before_target = _member_state(target)
+        target.display_name = source.display_name
+        target.tags = tags
+        target.version += 1
+        target.edit_time = _now()
+        target.save()
+        # Hard-delete the external member record so the duplicate is gone for
+        # good (the unique (project, external_id) index then allows reuse).
+        source.delete()
+        cls._sync_count(project)
+        event = record_audit(
+            actor=operator,
+            scope="project",
+            action="project_external_member_bind_merge",
+            project=project,
+            member=target,
+            target_user=user,
+            before={"source": before_source, "target": before_target},
+            after={
+                "source": {**before_source, "status": "deleted"},
+                "target": _member_state(target),
+            },
+            request_id=request_id,
+        )
+        return target, event
+
+    @classmethod
+    def hard_delete_external(cls, project, member_id, operator, *, request_id=None):
+        """Permanently delete an external project member.
+
+        Only the project owner or the team creator may hard-delete an external
+        alias.  The record is removed from the database (not soft-removed), so
+        the (project, external_id) unique index slot is freed.  Registered
+        members cannot be hard-deleted through this path.
+        """
+        cls._require_operator(operator, project)
+        is_project_owner = (
+            project.owner_user is not None and project.owner_user == operator
+        )
+        is_team_creator = IdentityPermissionService.is_team_creator(
+            operator, project.team
+        )
+        if not (is_project_owner or is_team_creator):
+            raise NoPermissionError
+        member = cls.get(project, member_id)
+        if member.user is not None or not member.external_id:
+            raise InvalidIdentityRequestError(
+                "only an external member can be hard-deleted"
+            )
+        before = _member_state(member)
+        member.delete()
+        cls._sync_count(project)
+        event = record_audit(
+            actor=operator,
+            scope="project",
+            action="project_external_member_hard_delete",
+            project=project,
+            member=member,
+            before=before,
+            after={**before, "status": "deleted"},
+            request_id=request_id,
+        )
+        return event
 
     @classmethod
     def _rollback_merge_write(

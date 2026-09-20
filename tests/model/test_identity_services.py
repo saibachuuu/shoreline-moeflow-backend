@@ -7,7 +7,6 @@ from app.exceptions import (
     IdentityPolicyInUseError,
     IdentityOperationInProgressError,
     IdentityVersionConflictError,
-    MemberMergeRequiredError,
     MemberAlreadyOwnerError,
     MemberCapacityReachedError,
     NoPermissionError,
@@ -468,14 +467,125 @@ class IdentityServiceTestCase(MoeTestCase):
             },
         )
         # The first registered target already has a member, so binding it again
-        # must enter the explicit merge path.
-        with self.assertRaises(MemberMergeRequiredError):
-            ProjectMemberService.bind(
-                project,
-                duplicate.id,
-                creator,
-                {"expected_version": duplicate.version + 1, "user_id": str(target.id)},
+        # automatically merges the external alias into the existing registered
+        # member: union the tags, adopt the external display name, and
+        # hard-delete the external record.
+        merged, merge_event = ProjectMemberService.bind(
+            project,
+            duplicate.id,
+            creator,
+            {"expected_version": duplicate.version + 1, "user_id": str(target.id)},
+        )
+        self.assertEqual(target, merged.user)
+        self.assertEqual("另一个外部", merged.display_name)
+        self.assertEqual(["translator"], merged.tags)
+        self.assertEqual("project_external_member_bind_merge", merge_event.action)
+        self.assertIsNone(
+            ProjectMember.objects(project=project, id=duplicate.id).first()
+        )
+
+    def test_external_bind_auto_merge_into_owner_preserves_creator(self):
+        project = self.create_project("external-bind-owner-merge")
+        team = project.team
+        creator = self.get_creator(team)
+        # creator is the project owner (has the creator tag).
+        owner_member = ProjectMemberService.for_user(project, creator)
+        self.assertIn("creator", owner_member.tags)
+        external = ProjectMemberService.add(
+            project, creator, {"display_name": "owner外部", "tags": ["translator"]}
+        )
+        merged, event = ProjectMemberService.bind(
+            project,
+            external.id,
+            creator,
+            {"expected_version": external.version, "user_id": str(creator.id)},
+        )
+        self.assertEqual(creator, merged.user)
+        self.assertIn("creator", merged.tags)
+        self.assertIn("translator", merged.tags)
+        self.assertEqual("owner外部", merged.display_name)
+        self.assertEqual("project_external_member_bind_merge", event.action)
+        self.assertIsNone(
+            ProjectMember.objects(project=project, id=external.id).first()
+        )
+
+    def test_external_member_hard_delete_requires_owner_or_team_creator(self):
+        project = self.create_project("external-hard-delete")
+        team = project.team
+        creator = self.get_creator(team)
+        external = ProjectMemberService.add(
+            project, creator, {"display_name": "可删除外部"}
+        )
+
+        # A plain team member cannot hard-delete.
+        other = self.create_user("external-hard-delete-other")
+        self._add_team_member(team, other)
+        with self.assertRaises(NoPermissionError):
+            ProjectMemberService.hard_delete_external(
+                project, external.id, other
             )
+
+        # The project owner / team creator can.
+        event = ProjectMemberService.hard_delete_external(
+            project, external.id, creator
+        )
+        self.assertEqual("project_external_member_hard_delete", event.action)
+        self.assertIsNone(
+            ProjectMember.objects(project=project, id=external.id).first()
+        )
+
+    def test_external_member_hard_delete_refuses_registered_member(self):
+        project = self.create_project("external-hard-delete-registered")
+        team = project.team
+        creator = self.get_creator(team)
+        user = self.create_user("external-hard-delete-user")
+        self._add_team_member(team, user)
+        member = ProjectMemberService.add(
+            project,
+            creator,
+            {"user_id": str(user.id), "display_name": "注册成员", "tags": []},
+        )
+        with self.assertRaises(InvalidIdentityRequestError):
+            ProjectMemberService.hard_delete_external(
+                project, member.id, creator
+            )
+
+    def test_external_bind_revives_removed_external_member(self):
+        project = self.create_project("external-bind-removed")
+        team = project.team
+        creator = self.get_creator(team)
+        target = self.create_user("external-bind-removed-target")
+        self._add_team_member(team, target, qualifications=["translator"])
+        external = ProjectMemberService.add(
+            project, creator, {"display_name": "已移除外部署名", "tags": ["translator"]}
+        )
+        # Soft-remove the external member first.
+        removed = ProjectMemberService.update(
+            project,
+            creator,
+            {
+                "member_id": str(external.id),
+                "expected_member_version": external.version,
+                "changes": {"status": "removed"},
+            },
+        )
+        self.assertEqual("removed", removed.status)
+        # Binding a removed external member revives it as a registered member.
+        bound, event = ProjectMemberService.bind(
+            project,
+            external.id,
+            creator,
+            {
+                "expected_version": removed.version,
+                "user_id": str(target.id),
+            },
+        )
+        self.assertEqual(target, bound.user)
+        self.assertIsNone(bound.external_id)
+        self.assertEqual("active", bound.status)
+        self.assertEqual("已移除外部署名", bound.display_name)
+        self.assertEqual(["translator"], bound.tags)
+        self.assertEqual("project_external_member_bind", event.action)
 
     def test_external_bind_save_race_is_reported_as_member_version_conflict(self):
         project = self.create_project("external-bind-version-race")

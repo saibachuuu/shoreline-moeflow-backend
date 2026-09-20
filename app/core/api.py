@@ -32,14 +32,20 @@ class APIError(Exception):
                 self.message = f"{self.message}: {message}"
 
     def to_tuple(self):
+        payload = {
+            "error": self.__class__.__name__,
+            "code": self.code,
+            "message": self.message,
+        }
+        # Identity errors carry a stable string identity_code in addition to
+        # the numeric code.  The frontend matches the string form so it can
+        # branch on the same error class from both this generic error path and
+        # the batch changes endpoint (which already uses identity_code).
+        identity_code = getattr(self, "identity_code", None)
+        if identity_code is not None:
+            payload["identity_code"] = identity_code
         return (
-            jsonify(
-                {
-                    "error": self.__class__.__name__,
-                    "code": self.code,
-                    "message": self.message,
-                }
-            ),
+            jsonify(payload),
             self.status_code,
             self.headers,
         )

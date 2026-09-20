@@ -115,6 +115,19 @@ class ProjectMemberMergeAPI(MoeAPIView):
         }
 
 
+class ProjectMemberHardDeleteAPI(MoeAPIView):
+    @token_required
+    @fetch_model(Project)
+    def delete(self, project, member_id):
+        event = ProjectMemberService.hard_delete_external(
+            project,
+            member_id,
+            self.current_user,
+            request_id=_request_id(),
+        )
+        return {"audit_event_id": str(event.id)}
+
+
 class ProjectOwnerTransferAPI(MoeAPIView):
     @token_required
     @fetch_model(Project)
