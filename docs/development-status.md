@@ -143,14 +143,15 @@ cd D:\moeflow
 远端测试：
 
 ```powershell
-.\moeflow.ps1 -Action Test -KeyPath <有效的SSH私钥路径>
+.\moeflow.ps1 -Action Test
 ```
 
 注意：
 
-- 脚本默认 SSH 私钥路径指向 `G:\Temp\MobaXterm\.ssh\m_usag`，当前不可用。
-- 如需执行远端测试，必须显式传入有效 `-KeyPath`。
-- 私钥不应提交到仓库，建议保存在工作区外的安全位置并控制权限。
+- 连接参数（主机、端口、用户、私钥路径）集中在 `scripts/config/moeflow.config.json`，
+  私钥默认位于 `scripts/config/keys/m_usag`；该目录已被 gitignore，不会提交。
+- 需要临时改用其它私钥时传 `-KeyPath <路径>` 即可，无需修改配置。
+- 私钥不应提交到仓库，建议保存在工作区外或 gitignore 覆盖的安全位置并控制权限。
 - 当前前后端均有大量未提交修改，`Plan` 不加 `-AllowDirty` 会拒绝执行；这是预期保护机制。
 
 ## 5. 当前开发情况总结

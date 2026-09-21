@@ -199,14 +199,17 @@ TTFB 7 次: 231 / 562 / 403 / 195 / 258 / 226 / 233 ms，median ≈ 231ms
 开发服务器：
 
 ```bash
-ssh -p 23213 -i D:/moeflow/_tmp_m_usag_key root@100.90.141.40
+ssh -p 23213 -i D:/moeflow/scripts/config/keys/m_usag root@100.90.141.40
 ```
 
 生产服务器需要通过本地代理连接，辅助脚本位于：
 
 ```text
-D:\moeflow\moeflow-http-connect-proxy.py
+D:\moeflow\scripts\python\moeflow-http-connect-proxy.py
 ```
+
+以上参数均已写入 `scripts/config/moeflow.config.json`，直接使用
+`scripts/moeflow-prod.ps1` 即可，无需手工拼接连接命令。
 
 代理端口：
 
