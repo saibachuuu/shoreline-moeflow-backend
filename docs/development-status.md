@@ -125,8 +125,8 @@ py -3.12 -m pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/s
 ```
 
 `dsh web` 不是 MoeFlow 的后端或前端运行依赖。前端开发服务器请在
-`moeflow-frontend` 中执行 `npm start`；后端可执行 `py -3.12 manage.py run`，或使用
-`moeflow-deploy/Makefile` 中的 `backend-dev`。如果终端提示找不到 `dsh`，先用
+`moeflow-frontend` 中执行 `npm start`；后端可执行 `py -3.12 manage.py run`。
+如果终端提示找不到 `dsh`，先用
 `Get-Command dsh` 检查 PATH；本机还可以用 Everything CLI 搜索 `dsh.cmd`。
 
 ## 4. 测试与部署脚本
