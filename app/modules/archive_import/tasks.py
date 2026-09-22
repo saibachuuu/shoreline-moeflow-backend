@@ -20,11 +20,12 @@ import requests
 from celery.utils.log import get_task_logger
 
 from app import TMP_PATH, celery
-from app.constants.archive_import import ArchiveImportStatus
 from app.models import connect_db
 from app.tasks import SyncResult, _FORCE_SYNC_TASK
 from app.utils.secrets import decrypt_secret
-from app.validators.archive_import import normalize_archive_api_url
+
+from .constants import ArchiveImportStatus
+from .validators import normalize_archive_api_url
 
 logger = get_task_logger(__name__)
 
@@ -226,9 +227,10 @@ def _zip_image_entries(zip_path: str, max_entries: int):
 @celery.task(name="tasks.archive_import_task")
 def archive_import_task(project_id, gid, token, task_id=None):
     """任务主体：解析直链 → 下载 → 校验 → 导入。"""
-    from app.models.archive_import import ArchiveImportTask
     from app.models.file import Filename
     from app.models.project import Project
+
+    from .models import ArchiveImportTask
 
     connect_db(celery.conf.app_config)
     try:

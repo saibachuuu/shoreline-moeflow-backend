@@ -1,0 +1,37 @@
+# 紫藤外组作品检索模块 —— 本机配置示例
+#
+# 用法：把本文件复制为同目录下的 `config_local.py`（不要带 .example 后缀）。
+#       `config_local.py` 已被 .gitignore 忽略，可以安全地放真实密钥。
+#
+# 优先级：环境变量 > config_local.py > 模块内置默认值
+# 也就是说，环境变量永远覆盖本文件，适合容器部署；
+# 本文件适合本机开发时免得每次 export。
+#
+# 键名用大写；不认识的键会被忽略（见 config.py 的白名单过滤）。
+
+# 合作方 API 密钥。留空则该模块虽被加载，但查重会以明确的失败态落库。
+API_KEY = ""
+
+# 合作方检索接口地址。一般不需要改。
+# API_URL = "https://partner-api.ziteng.org/partner-api/v1/works/search"
+
+# 是否把「撞车不做 / 已撤回」的条目也纳入查询。
+# 默认 False：只查已立项的（published + in_progress），这是需求方确认的口径。
+# 置 True 仅用于人工复核，不建议长期开启。
+# INCLUDE_INACTIVE = False
+
+# 查询结果缓存有效期（秒）。默认 7 天。
+# CACHE_TTL = 604800
+
+# 单次查询最多翻几页（每页固定 10 条）。默认 3。
+# 对方有 1 req/s 的全局配额，调大会挤占他人。
+# MAX_PAGES = 3
+
+# 每次请求的超时（秒）。默认 20。
+# TIMEOUT = 20
+
+# 两次请求之间的最小间隔（秒）。默认 1.1（对方限制 1 req/s）。
+# MIN_INTERVAL = 1.1
+
+# 单次查重最多展示几条疑似。默认 5。
+# MAX_RESULTS = 5

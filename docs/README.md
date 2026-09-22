@@ -26,6 +26,7 @@
 | `models.md` | MongoDB 持久化模型清单 | 数据模型 |
 | `user_stories.md` | 用户故事 | 需求 |
 | `archive-import-from-gallery-url.md` | 归档导入（来自图库 URL）的设计与契约 | 归档导入 |
+| `optional-modules.md` | 可选模块（外挂模块）系统的设计稿与现状调查；含「不带模块时核心保持通用」的验收标准、归档导入平移方案、外组检索模块方案 | 模块化 |
 
 ## 迁移说明（2026-08-26）
 

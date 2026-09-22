@@ -11,7 +11,7 @@ from mongoengine import (
 )
 from typing import TYPE_CHECKING
 
-from app.constants.archive_import import ArchiveImportStatus
+from .constants import ArchiveImportStatus
 
 if TYPE_CHECKING:
     from app.models.project import Project

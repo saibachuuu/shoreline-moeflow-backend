@@ -48,7 +48,7 @@ from app.apis.presence import (
 )
 
 # from app.apis.role import RoleAPI, RoleListAPI
-from app.apis.archive_import import ArchiveImportAPI, ArchiveImportTaskAPI
+# 画廊归档导入的路由已迁入可选模块（见 docs/optional-modules.md §5）
 from app.apis.source import FileSourceListAPI, SourceAPI, SourceRankAPI
 from app.apis.team import (
     TeamInsightProjectListAPI,
@@ -429,21 +429,6 @@ project.add_url_rule(
     "/<project_id>/ocr",
     methods=["POST", "OPTIONS"],
     view_func=ProjectOCRAPI.as_view("project_ocr"),
-)
-project.add_url_rule(
-    "/<project_id>/import-from-archive",
-    methods=["POST", "OPTIONS"],
-    view_func=ArchiveImportAPI.as_view("archive_import"),
-)
-project.add_url_rule(
-    "/<project_id>/import-task",
-    methods=["GET", "OPTIONS"],
-    view_func=ArchiveImportTaskAPI.as_view("archive_import_task"),
-)
-project.add_url_rule(
-    "/<project_id>/import-task/dismiss",
-    methods=["POST", "OPTIONS"],
-    view_func=ArchiveImportTaskAPI.as_view("archive_import_task_dismiss"),
 )
 project.add_url_rule(
     "/<project_id>/presence/heartbeat",

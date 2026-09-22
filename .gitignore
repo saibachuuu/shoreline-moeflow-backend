@@ -122,3 +122,7 @@ gen
 
 # External migration evidence bundles are deployment data, not source files.
 /artifacts/
+
+# 可选模块的本机配置（可能含密钥，禁止提交）
+# 模块可用 config_local.py 覆盖内置默认值；示例见各模块的 config_local.py.example
+**/config_local.py

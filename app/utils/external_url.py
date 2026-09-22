@@ -1,38 +1,38 @@
+"""外部 API 地址的校验工具（通用）。
+
+**为什么在核心**：`normalize_external_api_url` 被核心的 `app/apis/team.py`
+（团队设置里填写第三方档案 API 基址）与归档导入模块**同时**使用。
+若把它留在模块里，核心就会反向 import 模块，破坏 C1。
+它本身与「归档导入」无关——只做外部地址的安全校验（HTTPS、禁止内网/保留地址、
+可选主机白名单），因此属于通用工具。
+
+模块可以使用核心（核心是底座），核心**不得**使用模块。
+"""
+
+from __future__ import annotations
+
 import ipaddress
 from urllib.parse import urlparse
 
 from flask_babel import lazy_gettext
-from marshmallow import fields, validates_schema
-from marshmallow.exceptions import ValidationError
 
-from app.validators.custom_schema import DefaultSchema
+__all__ = ["normalize_external_api_url"]
 
 
-class ArchiveImportSchema(DefaultSchema):
-    """触发画廊归档导入的参数"""
-
-    gid = fields.Str(required=True, validate=[lambda v: v.strip().isdigit()])
-    token = fields.Str(required=True, validate=[lambda v: bool(v.strip())])
-    gallery_url = fields.Str(required=False, allow_none=True)
-
-    @validates_schema
-    def verify_not_empty(self, data, **kwargs):
-        if "gid" in data and not data["gid"].strip():
-            raise ValidationError(lazy_gettext("gid 不能为空"), "gid")
-        if "token" in data and not data["token"].strip():
-            raise ValidationError(lazy_gettext("token 不能为空"), "token")
-        if data.get("gallery_url") is not None and not data["gallery_url"].strip():
-            data["gallery_url"] = ""
-
-
-def normalize_archive_api_url(
+def normalize_external_api_url(
     value: str,
     *,
     allowed_hosts: tuple[str, ...] | list[str] = (),
     require_allowlist: bool = False,
 ) -> str:
-    """Validate a provider base URL before the worker sends credentials to it."""
+    """校验一个外部 API 基址，返回去掉结尾斜杠的形式。
 
+    在把凭据发给对方之前调用，防止凭据被送到内网地址（SSRF）。
+
+    :param allowed_hosts: 允许的主机白名单；支持 `*.example.com` 与 `example.com`
+        （后者自动涵盖子域）。
+    :param require_allowlist: 为真时，主机必须命中白名单，否则报错。
+    """
     value = str(value or "").strip()
     parsed = urlparse(value)
     if parsed.scheme != "https":

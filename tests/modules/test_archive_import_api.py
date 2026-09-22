@@ -8,12 +8,18 @@ from unittest.mock import patch
 
 from app.exceptions.base import ValidateError
 
-from app.constants.archive_import import ArchiveImportStatus
 from app.constants.project import ProjectStatus
 from app.exceptions import NoPermissionError
 from app.exceptions.project import ProjectFinishedError
-from app.models.archive_import import ArchiveImportTask
-from app.tasks import archive_import as archive_import_module
+
+# 模块不存在时在收集期整文件跳过（§4 检查项 11：零模块时套件仍全绿）
+from tests.modules import requires_module
+
+requires_module("archive_import")
+
+from app.modules.archive_import.constants import ArchiveImportStatus
+from app.modules.archive_import.models import ArchiveImportTask
+from app.modules.archive_import import tasks as archive_import_module
 from app.utils.secrets import decrypt_secret
 from tests import TEST_FILE_PATH, MoeAPITestCase
 

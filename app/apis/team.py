@@ -32,8 +32,9 @@ from app.services.team_member import TeamMemberService
 from app.services.identity_permission import IdentityPermissionService
 from app.validators.project import ProjectSetsSchema
 from app.utils.secrets import decrypt_secret, encrypt_secret
-from app.validators.archive_import import normalize_archive_api_url
+from app.utils.external_url import normalize_external_api_url as normalize_archive_api_url
 from app.exceptions.base import ValidateError
+from app.modules import notify_project_created
 
 
 def getLanguageByCode(code):
@@ -479,6 +480,8 @@ class TeamProjectListAPI(MoeAPIView):
             target_languages=data["target_languages"],
             labelplus_txt=data["labelplus_txt"],
         )
+        # 通知可选模块（核心不认识任何具体模块）
+        notify_project_created(project)
         return {
             "message": gettext("创建成功"),
             "project": _project_with_member_summary(project, self.current_user),
@@ -540,6 +543,8 @@ class TeamProjectImportAPI(MoeAPIView):
             target_languages=[data["output_language"]],
             labelplus_txt=labelplus_txt,
         )
+        # 通知可选模块（核心不认识任何具体模块）
+        notify_project_created(project)
         return {
             "message": gettext("创建成功"),
             "project": _project_with_member_summary(project, self.current_user),

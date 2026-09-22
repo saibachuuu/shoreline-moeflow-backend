@@ -11,6 +11,7 @@ from .apis import register_apis
 import app.translations as app_translations
 
 from app.models import connect_db
+from app.modules import discover as discover_modules, log_enabled_modules
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,14 @@ def create_flask_app(app: Flask) -> Flask:
 
 def init_flask_app(app: Flask):
     register_apis(app)
+    # 可选模块：各自注册蓝图/模型/索引。模块自带蓝图，因此 urls.py 无需改动。
+    for _spec in discover_modules():
+        if _spec.init is None:
+            continue
+        try:
+            _spec.init(app)
+        except Exception:
+            logger.exception("模块 %s 初始化失败，已跳过", _spec.name)
     babel.init_app(
         app,
         locale_selector=app_translations.get_locale,
@@ -55,6 +64,7 @@ def init_flask_app(app: Flask):
             + str([str(i) for i in babel.list_translations()])
         )
     oss.init(app.config)  # 文件储存
+    log_enabled_modules()
 
 
 def create_celery(app: Flask) -> celery.Celery:
@@ -72,6 +82,7 @@ def create_celery(app: Flask) -> celery.Celery:
         **app.config["CELERY_BACKEND_SETTINGS"],
     )
     created.conf.update({"app_config": app.config})
+    _module_specs = discover_modules()
     created.autodiscover_tasks(
         packages=[
             "app.tasks.email",
@@ -82,9 +93,16 @@ def create_celery(app: Flask) -> celery.Celery:
             "app.tasks.import_from_labelplus",
             "app.tasks.thumbnail",
             "app.tasks.mit",  # only included for completeness's sake. its impl is in other repo.
-        ],
+        ]
+        + [pkg for _spec in _module_specs for pkg in _spec.task_packages],
         related_name=None,
     )
+    # 模块队列路由必须插在通配 "*" 之前，否则会被 default 吃掉。
+    _module_routes = [
+        (f"tasks.{_spec.name}.*", {"queue": _spec.queue})
+        for _spec in _module_specs
+        if _spec.queue
+    ]
     created.conf.task_routes = (
         [
             # TODO 'output' should be named better.
@@ -93,6 +111,9 @@ def create_celery(app: Flask) -> celery.Celery:
             ("tasks.import_from_labelplus_task", {"queue": "output"}),
             ("tasks.create_thumbnail_task", {"queue": "output"}),
             ("tasks.mit.*", {"queue": "mit"}),
+        ]
+        + _module_routes
+        + [
             ("*", {"queue": "default"}),  # default queue for all other tasks
         ],
     )

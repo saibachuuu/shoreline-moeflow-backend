@@ -6,6 +6,12 @@ from unittest import TestCase
 import os
 from mongoengine import connection
 
+# 可选模块的启用取决于配置（密钥），而 `app/__init__.py` 在 import 时就构建
+# 应用并调用模块的 init 钩子。因此这里必须在 import app **之前**设置。
+# `.env.test` 是 gitignore 的，这样写可保证模块测试在任何环境都可复现。
+# 测试全程打桩 HTTP，该假密钥不会外发。
+os.environ.setdefault("ZITENG_PARTNER_API_KEY", "test-ziteng-key")
+
 from app import create_app, FILE_PATH, oss
 from app.factory import init_db
 from app.models.site_setting import SiteSetting
