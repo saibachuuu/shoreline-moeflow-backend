@@ -32,7 +32,9 @@ from app.services.team_member import TeamMemberService
 from app.services.identity_permission import IdentityPermissionService
 from app.validators.project import ProjectSetsSchema
 from app.utils.secrets import decrypt_secret, encrypt_secret
-from app.utils.external_url import normalize_external_api_url as normalize_archive_api_url
+from app.utils.external_url import (
+    normalize_external_api_url as normalize_archive_api_url,
+)
 from app.exceptions.base import ValidateError
 from app.modules import notify_project_created
 

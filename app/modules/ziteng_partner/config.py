@@ -50,9 +50,7 @@ def _local() -> dict:
             from . import config_local  # type: ignore[attr-defined]
 
             _local_cache = {
-                key: value
-                for key, value in vars(config_local).items()
-                if key.isupper()
+                key: value for key, value in vars(config_local).items() if key.isupper()
             }
         except ImportError:
             _local_cache = {}

@@ -120,9 +120,11 @@ class ZitengCheck(db.Document):
 
         对方配额是全局 1 req/s，并发查询必然触发 429。
         """
-        updated = type(self).objects(
-            id=self.id, status=int(CheckStatus.QUEUED)
-        ).update_one(status=int(CheckStatus.RUNNING), updated_at=datetime.utcnow())
+        updated = (
+            type(self)
+            .objects(id=self.id, status=int(CheckStatus.QUEUED))
+            .update_one(status=int(CheckStatus.RUNNING), updated_at=datetime.utcnow())
+        )
         if updated:
             self.reload()
         return bool(updated)

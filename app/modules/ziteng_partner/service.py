@@ -14,7 +14,6 @@ from .client import PartnerApiError, PartnerWork, search
 from .matching import find_suspects
 from .models import (
     VERDICT_CLEAR,
-    VERDICT_FAILED,
     VERDICT_SUSPECTED,
     ZitengCheck,
     ZitengQuery,

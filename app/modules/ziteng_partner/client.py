@@ -210,6 +210,8 @@ def _search_pages(query: str) -> SearchResult:
             break
         if page == max_pages:
             truncated = True
-            logger.info("关键词 %r 命中 %d 条，达到翻页上限 %d 页", query, total, max_pages)
+            logger.info(
+                "关键词 %r 命中 %d 条，达到翻页上限 %d 页", query, total, max_pages
+            )
 
     return SearchResult(query=query, works=works, total=total, truncated=truncated)
