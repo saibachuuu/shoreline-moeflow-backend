@@ -51,3 +51,10 @@ Please refer to instruction in https://github.com/moeflow-com/moeflow-deploy
 - **错误码增强**：`APIError.to_tuple()` 在数字错误码之外附带稳定的 `identity_code` 字符串，便于前端在并发合并等场景精确兑底。
 - **环境与 CI 修复**：恢复 Python 3.12 运行环境（与数据库迁移校验和一致）并同步 uv 生成的依赖；`user.py` 改用 `jwt.decode` 替换已被移除的 `TimedJSONWebSignatureSerializer`；修正 marshmallow 3.26 下 `ValidationError(msg, [field_name])` 触发的 unhashable type 错误；CI 改为安装 `requirements-dev.txt` 以便运行 pytest，并整理 ruff 格式。
 - **测试**：将 bind 用例更新为预期自动合并，新增 owner 合并、硬删除、已移除外部成员绑定等用例，并将迁移 0007 纳入预期迁移列表。
+
+### Version 1.2.4
+
+- **可选后端模块系统架构**：建立模块化加载机制（`modules/` 目录即插件开关），支持可选功能的即插即用与隔离解耦。
+- **业务功能模块化解耦**：将归档导入（`archive_import`）与紫藤外组作品检索（`ziteng_partner` 撞车查询与状态接口）重构迁移为独立模块。
+- **开发者文档与工具链整理**：清理遗留的 Makefile 流程，统一规范开发与维护脚本。
+
