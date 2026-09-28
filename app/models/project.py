@@ -342,6 +342,8 @@ class ProjectSet(Document):
 
 
 class Project(GroupMixin, Document):
+    file_order_lock = DateTimeField(db_field="fol", null=True)
+
     name = StringField(db_field="n", required=True)  # 项目名
     # NFC + casefold projection used by project-name search.
     name_search = StringField(default="", db_field="ns")
@@ -682,6 +684,18 @@ class Project(GroupMixin, Document):
                 raise FilenameDuplicateError
         # 没有同名文件
         else:
+            # New uploads inherit ordering only in an already ordered directory.
+            last_ordered = (
+                File.objects(
+                    project=self,
+                    parent=parent,
+                    activated=True,
+                    type=filename.file_type,
+                    manual_order__ne=None,
+                )
+                .order_by("-manual_order")
+                .first()
+            )
             # 新建文件对象
             file = File(
                 name=filename.name,
@@ -690,6 +704,7 @@ class Project(GroupMixin, Document):
                 type=filename.file_type,
                 sort_name=filename.sort_name,
                 file_not_exist_reason=FileNotExistReason.NOT_UPLOAD,
+                manual_order=last_ordered.manual_order + 1 if last_ordered else None,
             ).save()
             # 创建FileTargetCache
             for target in self.targets():
@@ -813,7 +828,11 @@ class Project(GroupMixin, Document):
         if file_ids_exclude:
             files = files.filter(id__nin=file_ids_exclude)
         # 排序处理
-        files = mongo_order(files, order_by, ["dir_sort_name", "type", "sort_name"])
+        # Preserve the legacy query/index for directories never manually ordered.
+        default_order = ["dir_sort_name", "type", "sort_name"]
+        if not order_by and files.filter(manual_order__ne=None).only("id").first():
+            default_order = ["dir_sort_name", "type", "manual_order", "sort_name", "id"]
+        files = mongo_order(files, order_by, default_order)
         # 分页处理
         files = mongo_slice(files, skip, limit)
         return files
@@ -980,6 +999,11 @@ class Project(GroupMixin, Document):
         Output.delete_real_files(self.outputs())
         self.delete()
 
+    def can_order_files(self, user, snapshot=None):
+        from app.services.file_order import can_order_files
+
+        return can_order_files(user, self, snapshot=snapshot)
+
     def to_labelplus(
         self,
         /,
@@ -987,6 +1011,8 @@ class Project(GroupMixin, Document):
         target,
         file_ids_include: List[str] = None,
         file_ids_exclude: List[str] = None,
+        files=None,
+        export_names=None,
     ):
         """将图片文件的翻译导出成Labelplus格式"""
         # Labelplus翻译文件头格式
@@ -1001,11 +1027,18 @@ class Project(GroupMixin, Document):
             + gettext("可使用 LabelPlus Photoshop 脚本导入 psd 中")
             + "\r\n"  # 注释
         )
-        files = self.files(
-            type_only=FileType.IMAGE,
-            file_ids_include=file_ids_include,
-            file_ids_exclude=file_ids_exclude,
-        )
+        if files is None:
+            files = list(
+                self.files(
+                    type_only=FileType.IMAGE,
+                    file_ids_include=file_ids_include,
+                    file_ids_exclude=file_ids_exclude,
+                )
+            )
+        if export_names is None:
+            from app.services.file_order import export_file_names
+
+            export_names = export_file_names(files)
         # 遍历所有图片，按设定在指定页植入人员名单
         staff_block = self._staff_list_block()
         if staff_block is not None:
@@ -1019,11 +1052,14 @@ class Project(GroupMixin, Document):
             if index == staff_index:
                 data += file.to_labelplus(
                     target=target,
+                    export_name=export_names.get(str(file.id)),
                     staff_block=staff_block,
                     staff_block_first=self._staff_list_page_resolved() > 0,
                 )
             else:
-                data += file.to_labelplus(target=target)
+                data += file.to_labelplus(
+                    target=target, export_name=export_names.get(str(file.id))
+                )
         return data
 
     def _staff_list_page_resolved(self) -> int:
@@ -1193,6 +1229,7 @@ class Project(GroupMixin, Document):
             "auto_become_project_admin": auto_become_project_admin,
             "effective_permissions": effective_permissions,
             "permission_sources": permission_sources,
+            "can_order_files": self.can_order_files(user, snapshot=snapshot),
             "staff_list_page": self.staff_list_page,
             "create_time": self.create_time.isoformat(),
             "edit_time": self.edit_time.isoformat(),

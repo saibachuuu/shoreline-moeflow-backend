@@ -20,3 +20,9 @@ class FileGetSchema(DefaultSchema):
 
 class FileUploadSchema(DefaultSchema):
     parent_id = fields.Str(missing=None, validate=[object_id])
+
+
+class FileOrderSchema(DefaultSchema):
+    reset_to_default = fields.Bool(missing=False)
+    file_ids = fields.List(fields.Str(validate=object_id), required=True)
+    version = fields.Str(required=True)

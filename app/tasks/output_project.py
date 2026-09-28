@@ -107,8 +107,21 @@ def output_project_task(output_id):
         os.makedirs(zip_images_folder_path, exist_ok=True)
         # 导出 Labelplus 翻译文本
         output.update(status=OutputStatus.TRANSLATION_OUTPUTING)
+        # Freeze one snapshot for both LabelPlus headers and downloaded filenames.
+        from app.services.file_order import export_file_names
+
+        files = list(
+            project.files(
+                type_only=FileType.IMAGE,
+                file_ids_include=file_ids_include,
+                file_ids_exclude=file_ids_exclude,
+            )
+        )
+        export_names = export_file_names(files)
         labelplus = project.to_labelplus(
             target=target,
+            files=files,
+            export_names=export_names,
             file_ids_include=file_ids_include,
             file_ids_exclude=file_ids_exclude,
         )
@@ -136,14 +149,12 @@ def output_project_task(output_id):
             with open(project_json_path, "w", encoding="utf-8") as json_file:
                 json.dump(project_json, json_file)
             # 下载项目图片
-            files = project.files(
-                type_only=FileType.IMAGE,
-                file_ids_include=file_ids_include,
-                file_ids_exclude=file_ids_exclude,
-            )
             for file in files:
                 file_path = os.path.abspath(
-                    os.path.join(zip_images_folder_path, file.name)
+                    os.path.join(
+                        zip_images_folder_path,
+                        export_names.get(str(file.id), file.name),
+                    )
                 )
                 try:
                     oss.download(

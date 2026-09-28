@@ -6,6 +6,7 @@ from app.apis.file import (
     FileOCRAPI,
     FileThumbnailAPI,
     ProjectFileListAPI,
+    ProjectFileOrderAPI,
     AdminFileListAPI,
 )
 from app.apis.index import PingAPI, DocsAPI, ErrorAPI, UrlListAPI, WarningAPI
@@ -399,6 +400,11 @@ project.add_url_rule(
     "/<project_id>/thumbnails",
     methods=["POST", "OPTIONS"],
     view_func=ProjectThumbnailAPI.as_view("project_thumbnails"),
+)
+project.add_url_rule(
+    "/<project_id>/files/order",
+    methods=["GET", "PUT", "OPTIONS"],
+    view_func=ProjectFileOrderAPI.as_view("project_file_order"),
 )
 project.add_url_rule(
     "/<project_id>/files",

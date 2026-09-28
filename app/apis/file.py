@@ -21,9 +21,47 @@ from app.validators.file import (
     FileSearchSchema,
     FileUploadSchema,
     FileGetSchema,
+    FileOrderSchema,
 )
 from app.core.api import QueryParser
 from app.exceptions.base import ValidateError
+
+
+class ProjectFileOrderAPI(MoeAPIView):
+    @token_required
+    @fetch_model(Project)
+    def get(self, project):
+        from app.services.file_order import can_order_files, order_snapshot
+
+        if not can_order_files(self.current_user, project):
+            raise NoPermissionError
+        files, version = order_snapshot(project)
+        # Use the exact legacy database order, not a browser locale comparator.
+        default_ids = (
+            File.objects(id__in=[f.id for f in files])
+            .order_by("dir_sort_name", "type", "sort_name")
+            .scalar("id")
+        )
+        return {
+            "files": [f.to_api() for f in files],
+            "version": version,
+            "default_file_ids": [str(file_id) for file_id in default_ids],
+        }
+
+    @token_required
+    @fetch_model(Project)
+    def put(self, project):
+        from app.services.file_order import save_order
+
+        data = self.get_json(FileOrderSchema())
+        save_order(
+            project,
+            self.current_user,
+            data["file_ids"],
+            data["version"],
+            reset_to_default=data["reset_to_default"],
+        )
+        return {"message": gettext("文件顺序已保存")}
 
 
 class ProjectFileListAPI(MoeAPIView):
@@ -194,26 +232,9 @@ class FileAPI(MoeAPIView):
             )
         # 插入前后图片的信息
         if file.type == FileType.IMAGE:
-            prev_image = (
-                file.project.files(
-                    parent=file.parent,
-                    type_only=FileType.IMAGE,
-                    order_by=["-sort_name"],
-                )
-                .filter(sort_name__lt=file.sort_name)
-                .limit(1)
-                .first()
-            )
-            next_image = (
-                file.project.files(
-                    parent=file.parent,
-                    type_only=FileType.IMAGE,
-                    order_by=["sort_name"],
-                )
-                .filter(sort_name__gt=file.sort_name)
-                .limit(1)
-                .first()
-            )
+            from app.services.file_order import image_neighbors
+
+            prev_image, next_image = image_neighbors(file)
             if prev_image:
                 data["prev_image"] = prev_image.to_api()
             if next_image:

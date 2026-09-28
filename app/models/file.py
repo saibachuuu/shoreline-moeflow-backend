@@ -206,6 +206,7 @@ class File(Document):
     )  # 祖先文件夹
 
     # == 排序 ==
+    manual_order = IntField(db_field="mo", null=True, min_value=1)
     sort_name = StringField(db_field="sn", required=True)  # 用于排序的文件名
     dir_sort_name = StringField(
         db_field="dn", required=True, default=""
@@ -281,6 +282,19 @@ class File(Document):
         "indexes": [
             ("activated", "name", "parent", "project"),
             ("type", "sort_name"),
+            {
+                "fields": (
+                    "project",
+                    "activated",
+                    "parent",
+                    "dir_sort_name",
+                    "type",
+                    "manual_order",
+                    "sort_name",
+                    "id",
+                ),
+                "name": "file_manual_order_v1",
+            },
             ("type", "-sort_name"),
             ("dir_sort_name", "type", "sort_name"),
             ("dir_sort_name", "type", "-sort_name"),
@@ -366,6 +380,7 @@ class File(Document):
             parent=self.parent,
             type=self.type,
             sort_name=self.sort_name,
+            manual_order=self.manual_order,
             activated=False,
             old_revision=self,
             revision=self.revisions.count() + 1,
@@ -386,7 +401,7 @@ class File(Document):
         # 切换激活的修订版
         old_activated_revision = self.activated_revision
         old_activated_revision.update(activated=False)
-        self.update(activated=True)
+        self.update(activated=True, manual_order=old_activated_revision.manual_order)
         self.reload()  # 刷新activated状态后，才能使用inc_cache，并且更新self的各种缓存，以免计数错误
         # 更新父目标缓存
         self.inc_cache(
@@ -492,8 +507,26 @@ class File(Document):
         else:
             dir_sort_name = ""
             ancestors = []
+        last_ordered = (
+            File.objects(
+                project=self.project,
+                parent=parent,
+                activated=True,
+                type=self.type,
+                manual_order__ne=None,
+                id__ne=self.id,
+            )
+            .order_by("-manual_order")
+            .first()
+        )
+        manual_order = last_ordered.manual_order + 1 if last_ordered else None
         # 修改自己的父级，祖先列表和目录排序名
-        self.update(parent=parent, ancestors=ancestors, dir_sort_name=dir_sort_name)
+        self.update(
+            parent=parent,
+            ancestors=ancestors,
+            dir_sort_name=dir_sort_name,
+            manual_order=manual_order,
+        )
         # 修改未激活修订版的父级，祖先列表和目录排序名
         self.deactivated_revisions.update(
             parent=parent, ancestors=ancestors, dir_sort_name=dir_sort_name
@@ -1225,7 +1258,9 @@ class File(Document):
         else:
             return data
 
-    def to_labelplus(self, /, *, target, staff_block=None, staff_block_first=False):
+    def to_labelplus(
+        self, /, *, target, staff_block=None, staff_block_first=False, export_name=None
+    ):
         """将翻译导出成labelplus格式
 
         :param staff_block: 可选的人员名单标签块（含标签行与多行文本），
@@ -1238,7 +1273,11 @@ class File(Document):
         else:
             path = ""
         # 文件路径行
-        data += ">>>>>>>>[" + path + self.name + "]<<<<<<<<\r\n"
+        data += (
+            ">>>>>>>>["
+            + (export_name if export_name is not None else path + self.name)
+            + "]<<<<<<<<\r\n"
+        )
         if staff_block is not None and staff_block_first:
             data += staff_block
         # 遍历所有原文
@@ -1279,6 +1318,7 @@ class File(Document):
         data = {
             "id": str(self.id),
             "name": self.name,
+            "manual_order": self.manual_order,
             "save_name": self.save_name,
             "type": self.type,
             "source_count": self.source_count,
