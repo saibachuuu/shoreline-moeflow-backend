@@ -58,3 +58,9 @@ Please refer to instruction in https://github.com/moeflow-com/moeflow-deploy
 - **业务功能模块化解耦**：将归档导入（`archive_import`）与紫藤外组作品检索（`ziteng_partner` 撞车查询与状态接口）重构迁移为独立模块。
 - **开发者文档与工具链整理**：清理遗留的 Makefile 流程，统一规范开发与维护脚本。
 
+### Version 1.2.5
+
+- **项目文件自定义排序与重置**：后端支持持久化项目文件自定义排序（`manual_order`），仅项目或团队管理者有权调整；提供快照版本防冲突校验，确保并发安全性。
+- **导出与导航一致性**：翻页导航、LabelPlus 导出及带编号的图片打包导出全面对齐自定义排序。
+- **恢复默认与自动化迁移**：支持一键清除自定义顺序并回退至默认自然排序；新增 `m0008_file_manual_order` 迁移脚本规范索引与字段演进。
+
