@@ -8,7 +8,7 @@ from app.core.responses import MoePagination
 from app.core.views import MoeAPIView
 from app.decorators.auth import admin_required, token_required
 from app.decorators.url import fetch_model
-from app.exceptions import RequestDataEmptyError, UserNotExistError
+from app.exceptions import NoPermissionError, RequestDataEmptyError, UserNotExistError
 from app.exceptions.auth import EmailNotInWhitelistError
 from app.models.site_setting import SiteSetting
 from app.models.user import User
@@ -196,10 +196,11 @@ class AdminUserAPI(MoeAPIView):
 
 
 class AdminUserAdminStatusAPI(MoeAPIView):
-    @admin_required
+    @token_required
     def put(self):
         """
-        @api {put} /v1/admin/admin-status 修改用户的管理员状态
+        @api {put} /v1/admin/admin-status 仅站长可修改用户的管理员状态
+        @apiDescription 操作者须是 ADMIN_EMAIL 指定且未封禁的现任站点管理员。
         @apiVersion 1.0.0
         @apiName put_admin_status
         @apiGroup Admin
@@ -207,7 +208,7 @@ class AdminUserAdminStatusAPI(MoeAPIView):
         @apiUse TokenHeader
 
         @apiParam {String} user_id 用户Id
-        @apiParam {Boolean} is_admin 是否是管理员
+        @apiParam {Boolean} status 是否是管理员
 
         @apiSuccessExample {json} 返回示例
         {
@@ -217,6 +218,8 @@ class AdminUserAdminStatusAPI(MoeAPIView):
         @apiUse NeedTokenError
         @apiUse BadTokenError
         """
+        if not self.current_user.can_manage_site_admins():
+            raise NoPermissionError
         data = self.get_json(AdminStatusSchema())
         user = User.by_id(data["user_id"])
         if user is None:

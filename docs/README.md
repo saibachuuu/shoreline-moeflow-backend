@@ -34,6 +34,8 @@
 | `moeflow-performance-progress.md` | 项目列表/团队列表/团队成员端点性能优化进度、实测数据、部署记录（原根目录 `MOEFLOW_PERFORMANCE_PROGRESS.md`） | 性能优化 |
 | `identity-refactor-review-and-fixes.md` | 身份标签重构的代码审查结论、逐项修复、逐轮部署与验证记录（**§15 记录团队成员列表 N+1 优化 + 前端快捷编辑请求合并**） | 身份重构 |
 | `project-identity-tags-change-summary.md` | 身份标签/团队成员/项目成员的对外 API 规格与设计决策（契约） | 身份重构 |
+| [`notification-system-plan.md`](notification-system-plan.md) | 核心通知系统实施计划（待审查）：跨前后端权限、阶段交接、BBCode／名片、邮件整合、可靠投递及部署验收 | 通知系统 |
+| [`site-admin-management.md`](site-admin-management.md) | 站长专属的站点管理员授予／取消权限；其余管理能力保持不变 | 权限修复 |
 | `models.md` | MongoDB 持久化模型清单 | 数据模型 |
 | `user_stories.md` | 用户故事 | 需求 |
 | `archive-import-from-gallery-url.md` | 归档导入（来自图库 URL）的设计与契约 | 归档导入 |

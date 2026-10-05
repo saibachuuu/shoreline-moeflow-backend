@@ -340,8 +340,12 @@ class User(Document):
             "admin": self.admin,
             "aliases": list(self.aliases or []),
         }
-        if g.get("current_user") and g.get("current_user").admin:
+        current_user = g.get("current_user")
+        if current_user and current_user.admin:
             data = {**data, **{"email": self.email}}
+        if current_user and current_user.id == self.id:
+            # A viewer capability, not a public marker identifying the owner.
+            data["can_manage_site_admins"] = self.can_manage_site_admins()
         return data
 
     # =====团队操作=====
@@ -841,6 +845,21 @@ class User(Document):
                 permission = f"team:{team_permissions.get(permission, permission)}"
             return IdentityPermissionService.team_snapshot(self, group).has(permission)
         return False
+
+    def can_manage_site_admins(self) -> bool:
+        """Only the active admin selected by server-side ADMIN_EMAIL may grant/revoke admins.
+
+        This is deliberately separate from admin_can(): all other existing
+        administrator capabilities remain unchanged. Missing config fails closed.
+        """
+        configured_email = current_app.config.get("ADMIN_EMAIL")
+        return bool(
+            self.admin
+            and not self.banned
+            and isinstance(configured_email, str)
+            and configured_email.strip()
+            and self.email.lower() == configured_email.strip().lower()
+        )
 
     def admin_can(self):
         """
