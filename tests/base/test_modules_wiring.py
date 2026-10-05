@@ -28,15 +28,16 @@ CORE_FILES_THAT_MUST_STAY_GENERIC = (
     # - config.py 的归档专属配置已迁入模块，仅保留与核心 secrets.py 共享的
     #   ARCHIVE_API_KEY_ENCRYPTION_KEY（它是通用加解密工具的配置，非归档专属）。
     "app/apis/team.py",
+    "app/apis/urls.py",
+    "app/models/site_setting.py",
+    "app/apis/site_setting.py",
+    "app/validators/site_setting.py",
 )
 
 # 这些文件**尚未**通用，因为对应的功能还没迁成模块。
 # 迁移完成后必须从本表移除，届时上面的检查会自动开始覆盖它们。
 # （见 docs/optional-modules.md §7 partner search。）
-CORE_FILES_PENDING_MIGRATION = {
-    "app/apis/urls.py": ("partner_search 仍是核心蓝图（§7）",),
-    "app/models/site_setting.py": ("partner_search 仍有 4 个核心字段（§7）",),
-}
+CORE_FILES_PENDING_MIGRATION = {}
 
 # 已知的具体模块名。核心文件里出现任何一个都说明 C1 被破坏。
 # 新增模块时把名字加进来，反向检查才会覆盖它。

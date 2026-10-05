@@ -2,7 +2,18 @@ import os
 from bson import ObjectId
 
 from app.constants.project import ProjectStatus
-from app.models.partner_search import PartnerSearchThrottle
+from app.exceptions import NoPermissionError
+import unittest
+
+try:
+    from app.modules.partner_search.models import (
+        PartnerSearchThrottle,
+        PartnerSearchSettings,
+    )
+except ModuleNotFoundError as error:
+    if error.name != "app.modules.partner_search":
+        raise
+    raise unittest.SkipTest("partner_search module not installed")
 from app.models.project import Project
 from app.models.site_setting import SiteSetting
 from tests import MoeAPITestCase, TEST_FILE_PATH
@@ -13,7 +24,7 @@ class TestPartnerSearchAPI(MoeAPITestCase):
 
     def _enable(self, team_ids=None, rate_limit=10, max_limit=20):
         """开启外部撞车查询并配置团队等参数。"""
-        site_setting = SiteSetting.get()
+        site_setting = PartnerSearchSettings.get()
         site_setting.partner_search_enabled = True
         site_setting.partner_search_team_ids = (
             [ObjectId(id) for id in team_ids] if team_ids else []
@@ -40,6 +51,23 @@ class TestPartnerSearchAPI(MoeAPITestCase):
 
     def _all_team_ids(self, projects):
         return [str(project.team.pk) for project in projects]
+
+    def test_options_remains_available_without_login(self):
+        for url, method in ((self.URL, "POST"), (self.URL + "/settings", "PUT")):
+            result = self.client.options(url)
+            self.assertEqual(result.status_code, 200)
+            self.assertIn(method, result.headers["Allow"])
+            result = self.client.options(
+                url,
+                headers={
+                    "Origin": "https://example.com",
+                    "Access-Control-Request-Method": method,
+                    "Access-Control-Request-Headers": "Authorization, Content-Type",
+                },
+            )
+            self.assertEqual(result.status_code, 200)
+            self.assertIn(method, result.headers["Access-Control-Allow-Methods"])
+            self.assertIn("Access-Control-Allow-Origin", result.headers)
 
     def test_disabled_returns_403(self):
         data = self._post_search({"keyword": "anyone"})
@@ -148,7 +176,6 @@ class TestPartnerSearchAPI(MoeAPITestCase):
         self.assertErrorEqual(data)
         self.assertEqual(data.json["total"], 1)
 
-
     def test_search_returns_none_thumbnail_when_no_images(self):
         project = self._create_team_project("无图作品")
         self._enable(team_ids=self._all_team_ids([project]))
@@ -184,9 +211,62 @@ class TestPartnerSearchAPI(MoeAPITestCase):
         item = data.json["projects"][0]
         self.assertEqual(item["thumbnail_url"], img1.cover_url)
         self.assertNotEqual(item["thumbnail_url"], img2.cover_url)
+
     def tearDown(self):
         try:
             PartnerSearchThrottle.drop_collection()
         except Exception:
             pass
         super().tearDown()
+
+
+class TestPartnerSearchSettingsAPI(MoeAPITestCase):
+    URL = "/v1/partner-search-query-entry/settings"
+
+    def _admin_token(self):
+        user = self.create_user("admin")
+        user.admin = True
+        user.save()
+        return user.generate_token()
+
+    def test_requires_admin(self):
+        user = self.create_user("ordinary")
+        self.assertEqual(self.get(self.URL).status_code, 401)
+        self.assertErrorEqual(
+            self.get(self.URL, token=user.generate_token()), NoPermissionError
+        )
+        self.assertErrorEqual(
+            self.put(self.URL, json={}, token=user.generate_token()), NoPermissionError
+        )
+
+    def test_existing_settings_survive_and_remain_isolated(self):
+        token = self._admin_token()
+        core = SiteSetting.get()
+        collection = SiteSetting._get_collection()
+        collection.update_one(
+            {"_id": core.id}, {"$set": {"pse": True, "psq": 12, "psm": 30}}
+        )
+        result = self.get(self.URL, token=token)
+        self.assertEqual(result.json["partner_search_rate_limit_seconds"], 12)
+        result = self.put(self.URL, token=token, json={"partner_search_max_limit": 42})
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json["partner_search_max_limit"], 42)
+        # Core can load/save documents with optional module fields without losing them.
+        core.reload()
+        core.custom_site_title = "still core"
+        core.save()
+        self.assertTrue(PartnerSearchSettings.get().partner_search_enabled)
+        self.assertEqual(PartnerSearchSettings.get().partner_search_max_limit, 42)
+        self.assertNotIn("partner_search_enabled", core.to_api())
+        self.assertEqual(SiteSetting.get().custom_site_title, "still core")
+
+    def test_invalid_settings_rejected(self):
+        token = self._admin_token()
+        for data in (
+            {"partner_search_team_ids": ["bad-id"]},
+            {"partner_search_max_limit": 0},
+            {"partner_search_rate_limit_seconds": -1},
+        ):
+            self.assertEqual(
+                self.put(self.URL, token=token, json=data).status_code, 400
+            )

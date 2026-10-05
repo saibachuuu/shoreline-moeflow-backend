@@ -9,15 +9,16 @@
 import logging
 
 from bson import ObjectId
-from flask import request
+from flask import Blueprint, current_app, request
 
 from app.constants.file import FileType
 from app.constants.project import ProjectStatus
 from app.core.api import APIError
 from app.core.views import MoeAPIView
-from app.models.partner_search import PartnerSearchThrottle
+from .models import PartnerSearchThrottle, PartnerSearchSettings
 from app.models.project import Project
-from app.models.site_setting import SiteSetting
+from app.decorators.auth import admin_required
+from .validators import PartnerSearchSettingsSchema
 from app.utils.search import normalize_search_text
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,14 @@ class PartnerSearchRateLimitedError(APIError):
     message = "rate limited, please retry later"
 
 
-class PartnerSearchEntryAPI(MoeAPIView):
+class PartnerSearchAPIView(MoeAPIView):
+    def options(self):
+        # Retain MoeFlow's CORS decorator (automatic Flask OPTIONS bypasses it),
+        # and also respond correctly to OPTIONS requests without an Origin.
+        return current_app.make_default_options_response()
+
+
+class PartnerSearchEntryAPI(PartnerSearchAPIView):
     """
     @apiDefine PartnerSearchEntry
     @apiParam {String} keyword 查询关键词（作品名/项目名，模糊匹配）
@@ -76,7 +84,7 @@ class PartnerSearchEntryAPI(MoeAPIView):
         @apiSuccess {String} projects.team_name 所属团队名
         @apiSuccess {String} [projects.thumbnail_url] 第一页缩略图 URL（预览）
         """
-        site_setting = SiteSetting.get()
+        site_setting = PartnerSearchSettings.get()
         if not site_setting.partner_search_enabled:
             raise PartnerSearchDisabledError()
 
@@ -183,3 +191,33 @@ class PartnerSearchEntryAPI(MoeAPIView):
             "limit": limit,
             "projects": data,
         }
+
+
+class PartnerSearchSettingsAPI(PartnerSearchAPIView):
+    @admin_required
+    def get(self):
+        return PartnerSearchSettings.get().to_api()
+
+    @admin_required
+    def put(self):
+        data = self.get_json(PartnerSearchSettingsSchema())
+        settings = PartnerSearchSettings.get()
+        for name, value in data.items():
+            setattr(settings, name, value)
+        settings.save()
+        return settings.reload().to_api()
+
+
+blueprint = Blueprint(
+    "partner_search", __name__, url_prefix="/v1/partner-search-query-entry"
+)
+blueprint.add_url_rule(
+    "",
+    methods=["POST", "OPTIONS"],
+    view_func=PartnerSearchEntryAPI.as_view("partner_search_entry"),
+)
+blueprint.add_url_rule(
+    "/settings",
+    methods=["GET", "PUT", "OPTIONS"],
+    view_func=PartnerSearchSettingsAPI.as_view("settings"),
+)
