@@ -123,7 +123,7 @@ def create_celery(app: Flask) -> celery.Celery:
     )
     created.conf.beat_schedule = {
         **(created.conf.beat_schedule or {}),
-        "core-notification-recovery": {"task": "tasks.notification_scan", "schedule": 30.0},
+        "core-notification-recovery": {"task": "tasks.notification_scan", "schedule": 10.0},
     }
     return created
 

@@ -66,7 +66,13 @@ def dispatch(notification_id):
                         u for u in valid if not note.cursor or str(u) > note.cursor
                     ][:BATCH]
                     if not users:
-                        guard().update_one(set__state="dispatching")
+                        if (
+                            not guard()
+                            .filter(state="preparing")
+                            .update_one(set__state="dispatching")
+                        ):
+                            return
+                        note.state = "dispatching"
                         break
                     # The unique chunk is the durable checkpoint; recover it before advancing.
                     NotificationAudienceChunk.objects(
@@ -92,7 +98,10 @@ def dispatch(notification_id):
                 if not changed:
                     return
                 note.cursor, note.next_chunk = saved.cursor, note.next_chunk + 1
-            return
+            # Small audiences need no extra Beat tick between sealing and fanout.
+            # Large snapshots still yield after the existing four-chunk budget.
+            if note.state != "dispatching":
+                return
         valid = set(valid)
         for chunk in (
             NotificationAudienceChunk.objects(notification_id=note.id, done=False)

@@ -465,7 +465,6 @@ class NotificationTestCase(MoeAPITestCase):
 
         original = QuerySet.update_one
         note = self.send()
-        dispatch(note.id)
 
         def crash(query, *args, **kwargs):
             if query._document is NotificationDelivery:
@@ -893,3 +892,91 @@ class NotificationTestCase(MoeAPITestCase):
             "IDEMPOTENCY-KEY", response.headers["Access-Control-Allow-Headers"].upper()
         )
         self.assertEqual(Notification.objects.count(), 0)
+
+    def test_sync_combines_badge_list_and_permissions_with_conditional_revision(self):
+        first = self.send(operation="sync-one")
+        self.drain(first)
+        second = self.send(self.data(title="other subject"), operation="sync-two")
+        self.drain(second)
+        response = self.call(
+            "GET", "/me/notification-sync?view=inbox&q=other", self.member
+        )
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json["counts"]["total"], 2)
+        self.assertEqual(len(response.json["page"]["items"]), 1)
+        self.assertTrue(response.json["capabilities"]["enabled"])
+        self.assertIn("no-store", response.headers["Cache-Control"])
+        unchanged = self.call(
+            "GET",
+            "/me/notification-sync?view=inbox&q=other&revision="
+            + response.json["revision"],
+            self.member,
+        )
+        self.assertTrue(unchanged.json["unchanged"])
+        self.assertNotIn("page", unchanged.json)
+        self.call(
+            "PATCH", f"/me/notifications/{second.id}", self.member, {"read": True}
+        )
+        changed = self.call(
+            "GET",
+            "/me/notification-sync?view=inbox&q=other&revision="
+            + response.json["revision"],
+            self.member,
+        )
+        self.assertEqual(changed.json["counts"]["total"], 1)
+        self.assertTrue(changed.json["page"]["items"][0]["read"])
+
+    def test_sync_rechecks_revocation_and_never_shares_management_projection(self):
+        note = self.send()
+        self.drain(note)
+        route = f"/me/notification-sync?view=inbox_detail&notification_id={note.id}"
+        before = self.call("GET", route, self.member)
+        self.assertEqual(before.json["notice"]["id"], str(note.id))
+        denied = self.call("GET", "/me/notification-sync?view=admin", self.member)
+        self.assertEqual(denied.json["view_error"]["status"], 403)
+        self.assertNotIn("page", denied.json)
+        svc.revoke(
+            self.admin,
+            note,
+            {"confirmed": True, "version": note.version, "reason": "stop"},
+            "sync-revoke",
+            admin=True,
+        )
+        after = self.call(
+            "GET", route + "&revision=" + before.json["revision"], self.member
+        )
+        self.assertEqual(after.json["view_error"]["status"], 404)
+        self.assertNotIn("notice", after.json)
+        self.assertEqual(after.json["counts"]["total"], 0)
+        admin = self.call(
+            "GET",
+            f"/me/notification-sync?view=admin_detail&notification_id={note.id}",
+            self.admin,
+        )
+        self.assertEqual(admin.json["notice"]["id"], str(note.id))
+        self.assertTrue(admin.json["notice"]["revoked_at"])
+
+    def test_sync_disabled_and_scoped_capability(self):
+        response = self.call(
+            "GET",
+            f"/me/notification-sync?view=scope&category=team&scope_id={self.team.id}",
+        )
+        self.assertTrue(response.json["capabilities"]["can_send"])
+        self.app.config["ENABLE_NOTIFICATIONS"] = False
+        disabled = self.call("GET", "/me/notification-sync?view=inbox")
+        self.assertFalse(disabled.json["enabled"])
+        self.assertEqual(disabled.json["counts"]["total"], 0)
+        self.assertNotIn("page", disabled.json)
+
+    def test_small_audience_fanout_finishes_in_one_scan(self):
+        note = self.send()
+        dispatch(note.id)
+        note.reload()
+        self.assertEqual(note.state, "published")
+        self.assertEqual(
+            NotificationReceipt.objects(notification_id=note.id).count(), 2
+        )
+        dispatch(note.id)
+        self.assertEqual(
+            NotificationReceipt.objects(notification_id=note.id).count(), 2
+        )

@@ -49,3 +49,5 @@
 两份文档已迁移至此，原根目录不再保留。文档内交叉引用已按同目录相对路径同步修正。
 
 - [通知系统初版实现与验收记录](notification-system-implementation.md)：已实现范围、实际 API、邮件保护、初始化、验证与上线前保留项。
+
+- [通知系统开发部署验收记录](notification-system-dev-deployment.md)：2026-10-06 开发 release、真实 Mongo／队列测试、浏览器截图、邮件隔离与回滚。
