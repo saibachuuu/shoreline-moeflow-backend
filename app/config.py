@@ -127,8 +127,8 @@ EMAIL_USE_SSL = True if env.get("EMAIL_USE_SSL", "") == "True" else False
 EMAIL_ADDRESS = env.get("EMAIL_ADDRESS", "")
 EMAIL_USERNAME = env.get("EMAIL_USERNAME", "")  # SMTP服务器用户名，通常是邮箱全称
 EMAIL_PASSWORD = env.get("EMAIL_PASSWORD", "")  # SMTP服务器密码
-EMAIL_REPLY_ADDRESS = env.get("EMAIL_ADDRESS", "")
-EMAIL_ERROR_ADDRESS = env.get("EMAIL_ADDRESS", "")
+EMAIL_REPLY_ADDRESS = env.get("EMAIL_REPLY_ADDRESS") or env.get("EMAIL_ADDRESS", "")
+EMAIL_ERROR_ADDRESS = env.get("EMAIL_ERROR_ADDRESS") or env.get("EMAIL_ADDRESS", "")
 # -----------
 # Celery
 # -----------
@@ -158,6 +158,22 @@ APIKIT_ACCESS_CONTROL_ALLOW_HEADERS = [
     "Authorization",
     "Content-Type",
     "X-Requested-With",
+    "Idempotency-Key",
 ]
 # manga-image-translator worker
 MIT_STORAGE_ROOT = env.get("MIT_STORAGE_ROOT", None)
+
+# Core notification rollout. Publication is opt-in; SMTP is independently protected.
+ENABLE_NOTIFICATIONS = env.get("ENABLE_NOTIFICATIONS", "False") == "True"
+NOTIFICATION_MAX_AUDIENCE = int(env.get("NOTIFICATION_MAX_AUDIENCE", "20000"))
+NOTIFICATION_TRUST_EXISTING_EMAILS = (
+    env.get("NOTIFICATION_TRUST_EXISTING_EMAILS", "False") == "True"
+)
+NOTIFICATION_EMAIL_ALLOWLIST = [
+    v.strip().lower()
+    for v in env.get("NOTIFICATION_EMAIL_ALLOWLIST", "").split(",")
+    if v.strip()
+]
+NOTIFICATION_EMAIL_UNRESTRICTED = (
+    env.get("NOTIFICATION_EMAIL_UNRESTRICTED", "False") == "True"
+)

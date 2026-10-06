@@ -86,6 +86,8 @@ def create_celery(app: Flask) -> celery.Celery:
     created.autodiscover_tasks(
         packages=[
             "app.tasks.email",
+            "app.tasks.notification",
+            "app.tasks.notification_security",
             "app.tasks.file_parse",
             "app.tasks.output_team_projects",
             "app.tasks.output_project",
@@ -107,6 +109,8 @@ def create_celery(app: Flask) -> celery.Celery:
         [
             # TODO 'output' should be named better.
             #  its original purpose was cpu-intensive jobs that may block light ones.
+            ("tasks.notification_security_email", {"queue": "security_email"}),
+            ("tasks.notification_scan", {"queue": "notification"}),
             ("tasks.output_project_task", {"queue": "output"}),
             ("tasks.import_from_labelplus_task", {"queue": "output"}),
             ("tasks.create_thumbnail_task", {"queue": "output"}),
@@ -117,6 +121,10 @@ def create_celery(app: Flask) -> celery.Celery:
             ("*", {"queue": "default"}),  # default queue for all other tasks
         ],
     )
+    created.conf.beat_schedule = {
+        **(created.conf.beat_schedule or {}),
+        "core-notification-recovery": {"task": "tasks.notification_scan", "schedule": 30.0},
+    }
     return created
 
 

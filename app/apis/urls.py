@@ -614,3 +614,6 @@ if app_config["MIT_STORAGE_ROOT"]:
         methods=["GET", "OPTIONS"],
         view_func=MitTranslateTaskApi.as_view("mit_translate_tasks_query"),
     )
+
+# Core notifications are registered even when no optional modules are installed.
+from app.apis.notification import notification  # noqa: E402,F401

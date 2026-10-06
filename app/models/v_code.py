@@ -243,6 +243,12 @@ class VCode(Document):
             if code.expires > datetime.datetime.utcnow():
                 # 如果验证码内容一致
                 if saved_code_content == code_content:
+                    if code.type == VCodeType.CONFIRM_EMAIL and current_app.config.get(
+                        "ENABLE_NOTIFICATIONS"
+                    ):
+                        from app.services.notifications import mark_verified
+
+                        mark_verified(code.info)
                     # 通过验证后是否删除
                     if delete_after_verified:
                         code.delete()
@@ -271,26 +277,13 @@ class VCode(Document):
         :param address: 接收地址/手机号
         :return:
         """
-        if self.type == VCodeType.RESET_EMAIL:
-            logger.info(
-                "Reset Email v_code {} - {} to ({}) {}".format(
-                    self.content, self.info, address_type, address
-                )
-            )
-        elif self.type == VCodeType.CONFIRM_EMAIL:
-            logger.info(
-                "Confirm Email v_code {} - {} to ({}) {}".format(
-                    self.content, self.info, address_type, address
-                )
-            )
-        elif self.type == VCodeType.RESET_PASSWORD:
-            logger.info(
-                "Reset Password v_code {} - {} to ({}) {}".format(
-                    self.content, self.info, address_type, address
-                )
-            )
-        else:
-            raise RuntimeError("This v_code type not support to_log")
+        # Never write verification secrets or full destination addresses to application logs.
+        logger.info(
+            "Verification code generated: id=%s type=%s channel=%s",
+            self.id,
+            self.type,
+            address_type,
+        )
 
     def to_email(self, address: str) -> None:
         """
@@ -314,6 +307,13 @@ class VCode(Document):
             raise RuntimeError("VCode({}) don't have email template".format(self.type))
         if current_app.config["DEBUG"] or current_app.config["TESTING"]:
             self.to_log("email", address)
+        elif current_app.config.get("ENABLE_NOTIFICATIONS"):
+            from app.tasks.notification_security import (
+                security_email,
+                verification_version,
+            )
+
+            security_email.delay(str(self.id), verification_version(self))
         else:
             send_email(
                 to_address=address,

@@ -34,7 +34,7 @@
 | `moeflow-performance-progress.md` | 项目列表/团队列表/团队成员端点性能优化进度、实测数据、部署记录（原根目录 `MOEFLOW_PERFORMANCE_PROGRESS.md`） | 性能优化 |
 | `identity-refactor-review-and-fixes.md` | 身份标签重构的代码审查结论、逐项修复、逐轮部署与验证记录（**§15 记录团队成员列表 N+1 优化 + 前端快捷编辑请求合并**） | 身份重构 |
 | `project-identity-tags-change-summary.md` | 身份标签/团队成员/项目成员的对外 API 规格与设计决策（契约） | 身份重构 |
-| [`notification-system-plan.md`](notification-system-plan.md) | 核心通知系统实施计划（待审查）：跨前后端权限、阶段交接、BBCode／名片、邮件整合、可靠投递及部署验收 | 通知系统 |
+| [`notification-system-plan.md`](notification-system-plan.md) | 核心通知系统实施计划（已批准，初版已开始实现）：通用手动发送与选人、全站消息检索／确认撤回、个人底层接口、BBCode／名片、五类邮件迁移隔离、可靠投递及部署验收 | 通知系统 |
 | [`site-admin-management.md`](site-admin-management.md) | 站长专属的站点管理员授予／取消权限；其余管理能力保持不变 | 权限修复 |
 | `models.md` | MongoDB 持久化模型清单 | 数据模型 |
 | `user_stories.md` | 用户故事 | 需求 |
@@ -47,3 +47,5 @@
 - `MOEFLOW_PERFORMANCE_PROGRESS.md` → `moeflow-performance-progress.md`
 
 两份文档已迁移至此，原根目录不再保留。文档内交叉引用已按同目录相对路径同步修正。
+
+- [通知系统初版实现与验收记录](notification-system-implementation.md)：已实现范围、实际 API、邮件保护、初始化、验证与上线前保留项。

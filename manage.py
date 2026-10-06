@@ -149,6 +149,33 @@ def mit_preprocess_dir(dir: str):
             print("  ", q.translated)
 
 
+@click.command("notification-indexes")
+@click.option(
+    "--apply", is_flag=True, help="Create only the new notification collection indexes."
+)
+def notification_indexes(apply):
+    """Inspect/initialize core notification indexes without altering versioned migrations."""
+    from app.models.notification import MODELS, ensure_notification_indexes
+
+    for model in MODELS:
+        click.echo(model._get_collection_name())
+    if apply:
+        with flask_app.app_context():
+            ensure_notification_indexes()
+        click.echo("Notification indexes initialized")
+
+
+@click.command("notification-scan")
+def notification_scan_command():
+    """Run one recovery pass; email still requires rollout/SMTP/recipient protection."""
+    from app.tasks.notification import notification_scan
+
+    with flask_app.app_context():
+        notification_scan()
+
+
+main.add_command(notification_indexes)
+main.add_command(notification_scan_command)
 main.add_command(docs)
 main.add_command(migrate)
 main.add_command(migrate_status)

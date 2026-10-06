@@ -447,6 +447,38 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
         cc_myself = data.get("cc_myself", True)
         file_id = data.get("file_id")
 
+        if current_app.config.get("ENABLE_NOTIFICATIONS"):
+            import hashlib
+            from flask import request
+            from app.models.notification import Notification
+            from app.services.notification_content import fail
+
+            operation_key = request.headers.get("Idempotency-Key")
+            operation = {
+                "target_id": str(target.id),
+                "file_id": str(file_id or ""),
+                "cc_myself": cc_myself,
+            }
+            if operation_key:
+                digest = hashlib.sha256(
+                    f"{self.current_user.id}:core:{operation_key}".encode()
+                ).hexdigest()
+                old = Notification.objects(key=digest).first()
+                if old:
+                    if (
+                        old.event_type != "proofread_feedback"
+                        or old.project_id != project.id
+                        or old.payload.get("operation") != operation
+                    ):
+                        fail("相同操作键不能用于不同内容", 409)
+                    return {
+                        "message": gettext(
+                            "校对反馈已受理，邮件投递状态请查看通知记录"
+                        ),
+                        "notification_id": str(old.id),
+                        "state": old.state,
+                    }, 202
+
         # 获取全部图片用于计算全局页码
         all_image_files = list(
             File.objects(project=project, type=FileType.IMAGE, activated=True).order_by(
@@ -560,7 +592,7 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
             else:
                 cc_emails.append(current_user_email)
 
-        if not to_emails:
+        if not to_emails and not current_app.config.get("ENABLE_NOTIFICATIONS"):
             if cc_myself and current_user_email:
                 to_emails = [current_user_email]
             else:
@@ -572,6 +604,67 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
         project_url = f"{site_origin}/project/{project.id}" if site_origin else ""
         total_changed = sum(p["changed_count"] for p in changed_pages)
         subject = f"[{project.name}] 校对稿修改反馈 - {target_lang_name}"
+
+        if current_app.config.get("ENABLE_NOTIFICATIONS"):
+            import json
+            import uuid
+            from flask import render_template
+            from app.services import notifications as notification_service
+
+            template_data = {
+                "site_name": site_name,
+                "project": project,
+                "target": target,
+                "target_language_name": target_lang_name,
+                "sender_name": self.current_user.name,
+                "sender_email": current_user_email,
+                "send_time": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+                "total_changed_labels": total_changed,
+                "changed_pages": changed_pages,
+                "project_url": project_url,
+                "reply_address": current_user_email,
+            }
+            payload = {
+                "html": render_template("email/proofread_draft.html", **template_data),
+                "text": render_template("email/proofread_draft.txt", **template_data),
+                "reply_to": current_user_email,
+                "cc_myself": cc_myself,
+                "operation": operation,
+            }
+            if len(json.dumps(payload).encode("utf-8")) > 8 * 1024 * 1024:
+                fail("校对稿过大，请指定较小的文件范围")
+            notification_data = {
+                "category": "project",
+                "scope_id": str(project.id),
+                "title": subject,
+                "body": f"{self.current_user.name} 寄送了 {target_lang_name} 校对反馈，共 {len(changed_pages)} 页、{total_changed} 处修改。\n[project]{project.id}[/project]",
+                "audience": {"mode": "condition", "tags": ["translator"]},
+                "email": True,
+            }
+            candidate = notification_service.make_note(
+                self.current_user,
+                notification_data,
+                trusted=True,
+                event_type="proofread_feedback",
+                payload=payload,
+            )
+            if not notification_service.recipient_ids(candidate):
+                raise NoTranslatorMemberError
+            note = notification_service.publish(
+                self.current_user,
+                notification_data,
+                operation_key or str(uuid.uuid4()),
+                trusted=True,
+                event_type="proofread_feedback",
+                payload=payload,
+            )
+            return {
+                "message": gettext("校对反馈已受理，邮件投递状态请查看通知记录"),
+                "notification_id": str(note.id),
+                "state": note.state,
+                "changed_pages_count": len(changed_pages),
+                "changed_labels_count": total_changed,
+            }, 202
 
         send_email(
             to_address=to_emails,

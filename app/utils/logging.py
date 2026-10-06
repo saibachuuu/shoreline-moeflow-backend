@@ -6,6 +6,9 @@ from app.utils.logging import logger
 
 import os
 import logging
+import threading
+import time
+from collections import deque
 from logging.handlers import SMTPHandler
 from flask import Flask
 from typing import Optional
@@ -23,6 +26,32 @@ class SMTPSSLHandler(SMTPHandler):
 
         Format the record and send it to the specified addressees.
         """
+        if hasattr(self, "notification_config"):
+            # Independent of MongoDB/Celery. No recursive logging on mail failure.
+            from app.services.notification_mail import send_protected_mail
+            from email.utils import make_msgid
+
+            with self.notification_lock:
+                now = time.monotonic()
+                while self.notification_times and self.notification_times[0] < now - 60:
+                    self.notification_times.popleft()
+                if len(self.notification_times) >= 5:
+                    return
+                self.notification_times.append(now)
+            try:
+                for address in self.toaddrs:
+                    send_protected_mail(
+                        self.notification_config,
+                        address,
+                        self.getSubject(record),
+                        self.format(record),
+                        message_id=make_msgid(),
+                        user_mail=False,
+                    )
+            except Exception:
+                # Never re-emit the triggering record (which may contain private diagnostics).
+                pass
+            return
         try:
             import smtplib
             from email.message import EmailMessage
@@ -121,6 +150,10 @@ def _enable_email_error_log(app: Flask):
             app.config["EMAIL_PASSWORD"],
         ),
     )
+    if app.config.get("ENABLE_NOTIFICATIONS"):
+        mail_handler.notification_config = app.config
+        mail_handler.notification_lock = threading.Lock()
+        mail_handler.notification_times = deque()
     mail_handler.setLevel(logging.ERROR)
     mail_handler.setFormatter(mail_formatter)
     logger.addHandler(mail_handler)
