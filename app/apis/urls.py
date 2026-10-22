@@ -65,6 +65,7 @@ from app.apis.team import (
 )
 from app.apis.term import TermAPI, TermBankAPI, TermListAPI
 from app.apis.translation import SourceTranslationListAPI, TranslationAPI
+from app.apis.tip import SourceTipListAPI, TipAPI
 from app.apis.type import TypeAPI
 from app.apis.v_code import (
     AdminVCodeListAPI,
@@ -489,12 +490,24 @@ source.add_url_rule(
     methods=["POST", "OPTIONS"],
     view_func=SourceTranslationListAPI.as_view("source_translation"),
 )
+source.add_url_rule(
+    "/<source_id>/tips",
+    methods=["POST", "OPTIONS"],
+    view_func=SourceTipListAPI.as_view("source_tip_list"),
+)
 # 翻译模块
 translation = Blueprint("translation", __name__, url_prefix=v1_prefix + "/translations")
 translation.add_url_rule(
     "/<translation_id>",
     methods=["PUT", "DELETE", "OPTIONS"],
     view_func=TranslationAPI.as_view("translation"),
+)
+# 批注模块
+tip = Blueprint("tip", __name__, url_prefix=v1_prefix + "/tips")
+tip.add_url_rule(
+    "/<tip_id>",
+    methods=["PUT", "DELETE", "OPTIONS"],
+    view_func=TipAPI.as_view("tip"),
 )
 # 团队和项目公用的模块
 group = Blueprint("group", __name__, url_prefix=v1_prefix)
