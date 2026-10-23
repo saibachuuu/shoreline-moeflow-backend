@@ -4285,7 +4285,7 @@ class MultiTargetCacheTestCase(MoeAPITestCase):
             )  # 同用户，翻译覆盖
             revision_b.sources()[5].create_tip(
                 "5-2", target1, user=user
-            )  # 同用户，提示新增
+            )  # 同用户，批注覆盖
             revision_b.sources()[5].create_translation(
                 "5-3", target1, user=user2
             )  # 不同用户，翻译新增
@@ -4299,7 +4299,7 @@ class MultiTargetCacheTestCase(MoeAPITestCase):
             )  # 同用户，翻译覆盖
             revision_b.sources()[5].create_tip(
                 "5-2", target2, user=user
-            )  # 同用户，提示新增
+            )  # 同用户，批注覆盖
             revision_b.sources()[5].create_translation(
                 "5-3", target2, user=user2
             )  # 不同用户，翻译新增
@@ -4414,7 +4414,7 @@ class MultiTargetCacheTestCase(MoeAPITestCase):
                     ["3"],
                     [],
                     [],
-                    ["5-3", "5-2", "5-1"],
+                    ["5-3", "5-2"],
                     ["1"],
                 ],
                 [
@@ -4434,7 +4434,7 @@ class MultiTargetCacheTestCase(MoeAPITestCase):
                 ],
             )
             self.assertEqual(
-                [["0"], ["1"], [], [], [], [], ["5-3", "5-2", "5-1"], ["1"]],
+                [["0"], ["1"], [], [], [], [], ["5-3", "5-2"], ["1"]],
                 [
                     [item.content for item in source.tips(target=target2)]
                     for source in revision_c.sources()

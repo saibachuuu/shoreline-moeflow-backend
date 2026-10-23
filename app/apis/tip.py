@@ -14,7 +14,7 @@ class SourceTipListAPI(MoeAPIView):
     @fetch_model(Source)
     def post(self, source: Source):
         """
-        @api {post} /v1/sources/<source_id>/tips 新增原文批注
+        @api {post} /v1/sources/<source_id>/tips 新增或更新原文批注
         @apiVersion 1.0.0
         @apiName add_source_tip
         @apiGroup Tip
@@ -23,6 +23,9 @@ class SourceTipListAPI(MoeAPIView):
 
         @apiParam {String} content 批注内容，不能为空
         @apiParam {String} target_id 目标语言ID，批注按目标语言隔离
+
+        @apiDescription 同一校对者对同一原文、同一目标语言只保留一条批注，
+        重复提交会覆盖原有内容。
 
         @apiSuccessExample {json} 返回示例
         {

@@ -72,6 +72,15 @@ class TipAPITestCase(MoeAPITestCase):
             )
             self.assertErrorEqual(data)
             self.assertEqual(2, Tip.objects().count())
+            # 同一用户再次创建会覆盖已有批注，不会新增
+            data = self.post(
+                "/v1/sources/{}/tips".format(source.id),
+                token=token,
+                json={"content": "更新后的批注", "target_id": str(target.id)},
+            )
+            self.assertErrorEqual(data)
+            self.assertEqual("更新后的批注", data.json["content"])
+            self.assertEqual(2, Tip.objects().count())
             # === 原文列表里能取到批注 ===
             data = self.get(
                 "/v1/files/{}/sources".format(image_file.id),
@@ -80,6 +89,10 @@ class TipAPITestCase(MoeAPITestCase):
             )
             self.assertErrorEqual(data)
             self.assertEqual(2, len(data.json[0]["tips"]))
+            self.assertEqual(
+                {"更新后的批注", "第二条批注"},
+                {tip["content"] for tip in data.json[0]["tips"]},
+            )
 
     def test_edit_and_delete_tip(self):
         """测试修改、删除原文批注"""

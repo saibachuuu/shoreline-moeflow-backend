@@ -1558,7 +1558,10 @@ class Source(Document):
         )
 
     def create_tip(self, content: str, target, user=None):
-        """Tip.create(source=self)的快捷方式"""
+        """Tip.create(source=self)的快捷方式
+
+        同一校对者对同一原文、同一目标语言只保留一条批注。
+        """
         return Tip.create(content=content, source=self, target=target, user=user)
 
     def translations(
@@ -1775,24 +1778,43 @@ class Tip(Document):
     edit_time = DateTimeField(db_field="et", default=datetime.datetime.utcnow)
     create_time = DateTimeField(db_field="ct", default=datetime.datetime.utcnow)
 
-    meta = {"indexes": ["source", "-edit_time"]}
+    meta = {
+        "indexes": [
+            "source",
+            "-edit_time",
+            # 每个校对者对每个原文、每个目标语言只能有一条批注
+            {"fields": ["source", "target", "user"], "unique": True},
+        ]
+    }
 
     @classmethod
     def create(cls, content, source, target, user=None):
-        """新增备注"""
+        """新增或更新备注
+
+        同一校对者对同一原文、同一目标语言只保留一条批注。
+        """
         # 内容不能为空
         if content == "":
             raise TipEmptyError
-        edit_time = _next_edit_time(Tip.objects(source=source, target=target))
-        tip = cls(
-            source=source,
-            user=user,
-            target=target,
-            create_time=edit_time,
-            edit_time=edit_time,
+        # 如果已经有自己的批注则覆盖
+        tip = cls.objects(source=source, target=target, user=user).first()
+        edit_time = _next_edit_time(
+            cls.objects(source=source, target=target), tip
         )
+        if tip is None:
+            tip = cls(source=source, target=target, user=user, create_time=edit_time)
         tip.content = content
-        tip.save()
+        tip.edit_time = edit_time
+        try:
+            tip.save()
+        except mongoengine.errors.NotUniqueError:
+            # 并发时另一请求已创建了同一校对者的批注，改为更新它
+            tip = cls.objects(source=source, target=target, user=user).first()
+            if tip is None:
+                raise
+            tip.content = content
+            tip.edit_time = edit_time
+            tip.save()
         return tip
 
     def to_api(self):
