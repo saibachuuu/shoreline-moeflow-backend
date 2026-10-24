@@ -715,7 +715,9 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
             )
             bake_and_dispatch.delay(str(note.id))
             return {
-                "message": gettext("校对反馈已受理，正在后台生成标注图，完成后自动寄出"),
+                "message": gettext(
+                    "校对反馈已受理，正在后台生成标注图，完成后自动寄出"
+                ),
                 "notification_id": str(note.id),
                 "state": note.state,
                 "changed_pages_count": len(changed_pages),

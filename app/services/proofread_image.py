@@ -28,7 +28,10 @@ TARGET_WIDTH = 640  # 烤图统一宽度（邮件列宽 ~280 的 2x 余量）
 def marker_fingerprint(labels):
     """标签坐标指纹，用于缓存失效。"""
     raw = repr(
-        [(l["x"], l["y"], l["position_type"], l["label_num"]) for l in labels]
+        [
+            (label["x"], label["y"], label["position_type"], label["label_num"])
+            for label in labels
+        ]
     ).encode()
     return hashlib.md5(raw).hexdigest()[:8]
 
@@ -41,9 +44,7 @@ def marked_image_url(file, labels):
 
     if not labels or not file.save_name:
         return file.url
-    processed_name = (
-        f"proofread-{marker_fingerprint(labels)}-{file.save_name.rsplit('.', 1)[0]}.webp"
-    )
+    processed_name = f"proofread-{marker_fingerprint(labels)}-{file.save_name.rsplit('.', 1)[0]}.webp"
     file_prefix = current_app.config["OSS_FILE_PREFIX"]
     try:
         if oss.is_exist(file_prefix, processed_name):
@@ -70,9 +71,7 @@ def _render(file, labels):
         image = image.convert("RGBA")
     if image.width > TARGET_WIDTH:
         ratio = TARGET_WIDTH / image.width
-        image = image.resize(
-            (TARGET_WIDTH, round(image.height * ratio)), Image.LANCZOS
-        )
+        image = image.resize((TARGET_WIDTH, round(image.height * ratio)), Image.LANCZOS)
     draw = ImageDraw.Draw(image)
     radius = max(MARKER_MIN_RADIUS, round(image.width * MARKER_RATIO / 2))
     font = ImageFont.load_default(size=max(9, radius))
@@ -85,7 +84,12 @@ def _render(file, labels):
         fill = OUT_COLOR if out else IN_COLOR
         text_fill = OUT_TEXT_COLOR if out else IN_TEXT_COLOR
         draw.ellipse(
-            (center_x - radius, center_y - radius, center_x + radius, center_y + radius),
+            (
+                center_x - radius,
+                center_y - radius,
+                center_x + radius,
+                center_y + radius,
+            ),
             fill=fill,
         )
         text = str(label["label_num"])

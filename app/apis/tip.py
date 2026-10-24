@@ -38,9 +38,7 @@ class SourceTipListAPI(MoeAPIView):
             raise NoPermissionError
         data = self.get_json(CreateTipSchema())
         target = source.file.project.target_by_id(data["target_id"])
-        tip = source.create_tip(
-            data["content"], target=target, user=self.current_user
-        )
+        tip = source.create_tip(data["content"], target=target, user=self.current_user)
         source.update_cache("edit_time", datetime.datetime.utcnow())
         return tip.to_api()
 

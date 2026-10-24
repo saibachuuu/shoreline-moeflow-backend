@@ -647,10 +647,6 @@ def locked_project_tags(project) -> frozenset[str]:
         policy = IdentityTagPolicy.objects(team=team).first()
         if policy is not None:
             custom = {
-                code
-                for code in (policy.project_tags or {})
-                if code not in PROJECT_TAGS
+                code for code in (policy.project_tags or {}) if code not in PROJECT_TAGS
             }
-    return frozenset(
-        {"admin", *custom, *getattr(project, "position_lock_tags", [])}
-    )
+    return frozenset({"admin", *custom, *getattr(project, "position_lock_tags", [])})

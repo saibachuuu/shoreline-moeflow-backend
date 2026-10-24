@@ -249,9 +249,7 @@ class ProjectMemberService:
         if (
             locked
             and (locked & set(tags or ()))
-            and not IdentityPermissionService.is_team_creator(
-                operator, project.team
-            )
+            and not IdentityPermissionService.is_team_creator(operator, project.team)
         ):
             raise NoPermissionError(
                 gettext("职位已被团队创建者锁定，仅团队创建者可以修改")
@@ -264,9 +262,7 @@ class ProjectMemberService:
         if (
             locked
             and (locked & set(member.tags or ()))
-            and not IdentityPermissionService.is_team_creator(
-                operator, project.team
-            )
+            and not IdentityPermissionService.is_team_creator(operator, project.team)
         ):
             raise NoPermissionError(
                 gettext("该成员持有已被锁定的职位，仅团队创建者可以移除")

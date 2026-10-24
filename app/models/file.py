@@ -1798,9 +1798,7 @@ class Tip(Document):
             raise TipEmptyError
         # 如果已经有自己的批注则覆盖
         tip = cls.objects(source=source, target=target, user=user).first()
-        edit_time = _next_edit_time(
-            cls.objects(source=source, target=target), tip
-        )
+        edit_time = _next_edit_time(cls.objects(source=source, target=target), tip)
         if tip is None:
             tip = cls(source=source, target=target, user=user, create_time=edit_time)
         tip.content = content

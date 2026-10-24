@@ -69,15 +69,16 @@ def bake_and_dispatch(notification_id):
                 "reply_address": pending.get("reply_address"),
             }
             payload = {
-                "html": render_template(
-                    "email/proofread_draft.html", **template_data
-                ),
+                "html": render_template("email/proofread_draft.html", **template_data),
                 "text": render_template("email/proofread_draft.txt", **template_data),
                 "reply_to": note.payload.get("reply_to"),
                 "cc_myself": note.payload.get("cc_myself", False),
                 "operation": note.payload.get("operation"),
             }
-            if len(json.dumps(payload, default=str).encode("utf-8")) > MAX_PAYLOAD_BYTES:
+            if (
+                len(json.dumps(payload, default=str).encode("utf-8"))
+                > MAX_PAYLOAD_BYTES
+            ):
                 Notification.objects(id=note.id, state="draft").update_one(
                     set__state="cancelled",
                     set__title=gettext(
