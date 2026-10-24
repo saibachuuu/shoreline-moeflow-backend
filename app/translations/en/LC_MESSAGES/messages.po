@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-09-08 02:16+0800\n"
+"POT-Creation-Date: 2026-10-24 14:34+0000\n"
 "PO-Revision-Date: 2017-04-14 15:38+0800\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en_US\n"
@@ -16,13 +16,13 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.17.0\n"
+"Generated-By: Babel 2.18.0\n"
 
-#: app/apis/application.py:147 app/apis/invitation.py:268
+#: app/apis/application.py:147 app/apis/invitation.py:265
 msgid "已接受"
 msgstr "Approved"
 
-#: app/apis/application.py:154 app/apis/invitation.py:273
+#: app/apis/application.py:154 app/apis/invitation.py:270
 msgid "已拒绝"
 msgstr "Rejected"
 
@@ -30,33 +30,11 @@ msgstr "Rejected"
 msgid "只有申请人可以删除申请"
 msgstr "Only the applicant can remove the application"
 
-#: app/apis/application.py:183 app/apis/file.py:280 app/apis/invitation.py:304
+#: app/apis/application.py:183 app/apis/file.py:301 app/apis/invitation.py:301
 #: app/apis/project_set.py:102 app/apis/target.py:31 app/apis/term.py:151
-#: app/apis/term.py:311 app/core/rbac.py:507
+#: app/apis/term.py:311 app/core/rbac.py:522
 msgid "删除成功"
 msgstr "Removed"
-
-#: app/apis/archive_import.py:45 app/apis/file.py:136
-msgid "您没有此项目的上传文件权限"
-msgstr "Upload file permission not granted"
-
-#: app/apis/archive_import.py:52
-msgid "该项目已有归档导入任务进行中"
-msgstr ""
-
-#: app/apis/archive_import.py:67
-msgid "归档导入任务已加入队列"
-msgstr "Queued"
-
-#: app/apis/archive_import.py:87 app/apis/archive_import.py:110
-#: app/apis/file.py:60 app/apis/file.py:174 app/apis/file.py:343
-#: app/apis/project.py:54 app/apis/project.py:351
-msgid "您没有此项目的访问权限"
-msgstr "Access permission not granted"
-
-#: app/apis/archive_import.py:117
-msgid "归档导入提示已关闭"
-msgstr ""
 
 #: app/apis/avatar.py:46
 msgid "请选择图片"
@@ -70,114 +48,159 @@ msgstr "Unsupported avatar type"
 msgid "缺少id"
 msgstr "Missing id"
 
-#: app/apis/avatar.py:75 app/apis/invitation.py:220 app/apis/invitation.py:234
-#: app/apis/me.py:134 app/apis/me.py:167 app/apis/project.py:102
-#: app/apis/project_set.py:71 app/apis/source.py:204 app/apis/team.py:289
+#: app/apis/avatar.py:75 app/apis/invitation.py:217 app/apis/invitation.py:231
+#: app/apis/me.py:145 app/apis/me.py:178 app/apis/project.py:105
+#: app/apis/project_set.py:71 app/apis/source.py:204 app/apis/team.py:293
 #: app/apis/term.py:122 app/apis/term.py:278 app/apis/user.py:195
-#: app/apis/user.py:227
+#: app/apis/user.py:230
 msgid "修改成功"
 msgstr "Updated"
 
-#: app/apis/file.py:246
+#: app/apis/file.py:64
+msgid "文件顺序已保存"
+msgstr ""
+
+#: app/apis/file.py:98 app/apis/file.py:212 app/apis/file.py:364
+#: app/apis/project.py:57 app/apis/project.py:355
+#: app/modules/archive_import/api.py:88 app/modules/archive_import/api.py:111
+#: app/modules/ziteng_partner/api.py:51 app/modules/ziteng_partner/api.py:68
+msgid "您没有此项目的访问权限"
+msgstr "Access permission not granted"
+
+#: app/apis/file.py:174 app/modules/archive_import/api.py:46
+msgid "您没有此项目的上传文件权限"
+msgstr "Upload file permission not granted"
+
+#: app/apis/file.py:267
 msgid "您没有权限移动文件"
 msgstr "Move file permission not granted"
 
-#: app/apis/file.py:251
+#: app/apis/file.py:272
 msgid "移动成功"
 msgstr "Moved"
 
-#: app/apis/file.py:254
+#: app/apis/file.py:275
 msgid "您没有权限修改文件名"
 msgstr "You do not have permission to modify the file name."
 
-#: app/apis/file.py:256
+#: app/apis/file.py:277
 msgid "改名成功"
 msgstr "Renamed"
 
-#: app/apis/file.py:258
+#: app/apis/file.py:279
 msgid "需要提供parent_id或name参数"
 msgstr "Please specify parent_id or name"
 
-#: app/apis/file.py:278
+#: app/apis/file.py:299
 msgid "您没有权限删除文件"
 msgstr "Removal permission not granted"
 
-#: app/apis/file.py:305 app/apis/project.py:314
+#: app/apis/file.py:326 app/apis/project.py:318
 msgid "您没有此项目所在团队使用自动标记限额的权限"
 msgstr "Permission not granted"
 
-#: app/apis/file.py:308 app/apis/project.py:317
+#: app/apis/file.py:329 app/apis/project.py:321
 msgid "源语言不支持自动标记"
 msgstr "The source language does not support oCR"
 
-#: app/apis/file.py:310
+#: app/apis/file.py:331
 msgid "文件不是图像文件"
 msgstr "Not an image file"
 
-#: app/apis/file.py:312 app/apis/project.py:326
+#: app/apis/file.py:333 app/apis/project.py:330
 msgid "团队限额不足"
 msgstr "Team credit insufficient"
 
-#: app/apis/file.py:314 app/constants/file.py:126
+#: app/apis/file.py:335 app/constants/file.py:126
 msgid "已加入队列"
 msgstr "Queued"
 
-#: app/apis/file.py:345
+#: app/apis/file.py:366
 msgid "仅图片文件可生成缩略图"
 msgstr ""
 
-#: app/apis/file.py:353 app/apis/project.py:360
+#: app/apis/file.py:374 app/apis/project.py:364
 msgid "当前存储模式无需重建缩略图"
 msgstr ""
 
-#: app/apis/file.py:358
+#: app/apis/file.py:379
 msgid "缩略图生成任务已触发"
 msgstr ""
 
-#: app/apis/invitation.py:144 app/models/user.py:576
+#: app/apis/invitation.py:144 app/models/user.py:635
 msgid "此用户是项目所在团队成员，已直接加入"
 msgstr "This user is a member of the project team and has been directly added."
 
-#: app/apis/invitation.py:159 app/models/user.py:582
+#: app/apis/invitation.py:159 app/models/user.py:641
 msgid "邀请成功，请等待用户确认"
 msgstr "Invited. Please wait for the user to confirm."
 
-#: app/apis/invitation.py:224
+#: app/apis/invitation.py:221
 msgid "只能修改邀请角色等级比您低的邀请"
 msgstr "You can only modify invitations for roles lower than your own."
 
-#: app/apis/invitation.py:231 app/models/user.py:553
+#: app/apis/invitation.py:228 app/models/user.py:612
 msgid "邀请的角色等级需要比您低"
 msgstr "The role level of the invitee needs to be lower than yours."
 
-#: app/apis/invitation.py:302
+#: app/apis/invitation.py:299
 msgid "只能删除邀请角色等级比您低的邀请"
 msgstr "You can only delete invitations for roles that are lower than your level."
 
-#: app/apis/me.py:198
+#: app/apis/me.py:209
 msgid "修改成功，请重新登陆"
 msgstr "Updated. Please log in again."
 
-#: app/apis/project.py:151
+#: app/apis/project.py:155
 msgid "添加目标语言成功"
 msgstr "Successfully added target language."
 
-#: app/apis/project.py:319
+#: app/apis/project.py:323
 msgid "自动标记进行中"
 msgstr "Auto-tagging in progress."
 
-#: app/apis/project.py:324
+#: app/apis/project.py:328
 msgid "未发现需要标记的图片"
 msgstr "No images found to be marked."
 
-#: app/apis/project.py:329
+#: app/apis/project.py:333
 msgid "已开始自动标记"
 msgstr "Auto-tagging started."
 
-#: app/apis/project.py:378
+#: app/apis/project.py:382
 #, python-format
 msgid "已为 %(count)s 张图片触发缩略图生成任务"
 msgstr ""
+
+#: app/apis/project.py:444
+msgid "您没有校对权限，无法寄送校对稿"
+msgstr "You do not have proofread permission to send the proofread draft"
+
+#: app/apis/project.py:478
+msgid "校对反馈已受理，邮件投递状态请查看通知记录"
+msgstr "Proofread feedback received. Check the notification records for email delivery status"
+
+#: app/apis/project.py:628
+#, python-format
+msgid "[%s] 校对稿修改反馈 - %s"
+msgstr "[%s] Proofread draft feedback - %s"
+
+#: app/apis/project.py:663
+#, python-format
+msgid ""
+"%(sender)s 寄送了 %(language)s 校对反馈，共 %(pages)s 页、%(changes)s 处修改。\n"
+"[project]%(project_id)s[/project]"
+msgstr ""
+"%(sender)s sent proofread feedback for %(language)s: %(pages)s page(s), %(changes)s changed label(s).\n"
+"[project]%(project_id)s[/project]"
+
+#: app/apis/project.py:702
+msgid "校对反馈已受理，正在后台生成标注图，完成后自动寄出"
+msgstr "Proofread feedback received. Annotated images are being generated in the background; the draft will be sent automatically once ready."
+
+#: app/apis/project.py:739
+msgid "校对稿已成功发送至翻译邮箱"
+msgstr "The proofread draft has been sent to the translators' mailboxes"
 
 #: app/apis/project_set.py:66
 msgid "默认项目集不能进行设置"
@@ -203,133 +226,87 @@ msgstr "Only image files can delete the original text."
 msgid "只有图片文件能修改原文顺序"
 msgstr "Only image files can change the original text order."
 
-#: app/apis/team.py:75
+#: app/apis/team.py:78
 msgid "archive_api_keys 必须是对象数组"
 msgstr ""
 
-#: app/apis/team.py:82
+#: app/apis/team.py:85
 msgid "archive_api_keys 包含不存在的 id"
 msgstr ""
 
-#: app/apis/team.py:88 app/apis/team.py:101
+#: app/apis/team.py:91 app/apis/team.py:104
 msgid "archive API key 不能为空"
 msgstr ""
 
-#: app/apis/team.py:111
+#: app/apis/team.py:114
 msgid "archive_api_keys 每项需要 id 或 key"
 msgstr ""
 
-#: app/apis/team.py:203 app/apis/team.py:482 app/apis/team.py:543
-#: app/apis/team.py:607 app/apis/term.py:84 app/apis/term.py:238
+#: app/apis/team.py:206 app/apis/team.py:488 app/apis/team.py:551
+#: app/apis/team.py:615 app/apis/term.py:84 app/apis/term.py:238
 msgid "创建成功"
 msgstr "Created successfully."
 
-#: app/apis/team.py:264
+#: app/apis/team.py:268
 msgid "只有团队创建者可以修改工作人员资格校验设置"
 msgstr ""
 
-#: app/apis/team.py:320
+#: app/apis/team.py:324
 msgid "此团队含有未完结的项目，不能解散（请先完结或者转移项目）"
-msgstr ""
-"This team has unfinished projects and cannot be disbanded (please "
-"complete or transfer the projects first)."
+msgstr "This team has unfinished projects and cannot be disbanded (please complete or transfer the projects first)."
 
-#: app/apis/team.py:323
+#: app/apis/team.py:327
 msgid "解散成功"
 msgstr "Disbanded successfully."
 
-#: app/apis/team.py:464 app/apis/team.py:508
+#: app/apis/team.py:468 app/apis/team.py:514
 msgid "您没有权限在这个团队创建项目"
 msgstr "You do not have permission to create projects in this team."
 
-#: app/apis/team.py:494
+#: app/apis/team.py:500
 msgid "创建导出任务成功"
 msgstr "Export task created successfully."
 
-#: app/apis/team.py:603
+#: app/apis/team.py:611
 msgid "您没有权限在这个团队创建项目集"
 msgstr "You do not have permission to create a project collection in this team."
 
-#: app/apis/team.py:647 app/apis/team.py:668 app/apis/team.py:705
-#: app/apis/team.py:732
+#: app/apis/team.py:654 app/apis/team.py:675 app/apis/team.py:715
+#: app/apis/team.py:742
 msgid "您没有权限查看本团队项目统计"
 msgstr "You do not have permission to view the statistics of this team project."
 
 #: app/apis/term.py:73
 msgid "您没有「创建术语库」权限，不能在此团队创建术语库"
-msgstr ""
-"You do not have the \"Create Termbase\" permission and cannot create a "
-"termbase in this team."
+msgstr "You do not have the \"Create Termbase\" permission and cannot create a termbase in this team."
 
 #: app/apis/term.py:113
 msgid "您没有「设置他人术语库」权限，只能设置自己创建的术语库"
-msgstr ""
-"You do not have the \"Set Others' Termbase\" permission and can only set "
-"the termbase you created."
+msgstr "You do not have the \"Set Others' Termbase\" permission and can only set the termbase you created."
 
 #: app/apis/term.py:148
 msgid "您没有「删除他人术语库」权限，只能删除自己创建的术语库"
-msgstr ""
-"You do not have the \"Delete Others' Termbase\" permission and can only "
-"delete termbases you created."
+msgstr "You do not have the \"Delete Others' Termbase\" permission and can only delete termbases you created."
 
 #: app/apis/term.py:181
 msgid "您没有「查看他人术语库」权限，只能查看自己创建的术语库中的术语"
-msgstr ""
-"You do not have the \"View Others' Termbase\" permission and can only "
-"view terms in the termbase you created."
+msgstr "You do not have the \"View Others' Termbase\" permission and can only view terms in the termbase you created."
 
 #: app/apis/term.py:226
 msgid "您没有「在他人术语库中增加术语」权限，只能在自己创建的术语库中增加术语"
-msgstr ""
-"You do not have the \"add terms to others' termbases\" permission and can"
-" only add terms to termbases you created."
+msgstr "You do not have the \"add terms to others' termbases\" permission and can only add terms to termbases you created."
 
 #: app/apis/term.py:272
 msgid "您没有「修改他人术语」权限，只能修改自己创建的术语或自己术语库中的术语"
-msgstr ""
-"You do not have the \"Modify Others' Terms\" permission and can only "
-"modify terms you created or terms in your own termbase."
+msgstr "You do not have the \"Modify Others' Terms\" permission and can only modify terms you created or terms in your own termbase."
 
 #: app/apis/term.py:307
 msgid "您没有「删除他人术语」权限，只能删除自己创建的术语或自己术语库中的术语"
-msgstr ""
-"You do not have the \"Delete Others' Terms\" permission and can only "
-"delete terms you created or terms in your own termbase."
+msgstr "You do not have the \"Delete Others' Terms\" permission and can only delete terms you created or terms in your own termbase."
 
 #: app/apis/user.py:131 app/apis/user.py:182
 msgid "注册成功"
 msgstr "Registration successful."
-
-#: app/constants/archive_import.py:18 app/constants/file.py:81
-#: app/constants/output.py:17 app/constants/project.py:33
-msgid "排队中"
-msgstr "In queue."
-
-#: app/constants/archive_import.py:19
-msgid "解析归档链接"
-msgstr ""
-
-#: app/constants/archive_import.py:20
-msgid "下载归档中"
-msgstr ""
-
-#: app/constants/archive_import.py:21
-msgid "校验归档中"
-msgstr ""
-
-#: app/constants/archive_import.py:22
-msgid "导入图片中"
-msgstr "Searching in images."
-
-#: app/constants/archive_import.py:23 app/constants/output.py:21
-#: app/constants/project.py:22
-msgid "已完成"
-msgstr "Completed."
-
-#: app/constants/archive_import.py:24
-msgid "导入失败"
-msgstr ""
 
 #: app/constants/file.py:70
 msgid "解析未开始"
@@ -355,6 +332,11 @@ msgstr "Parsing successful."
 msgid "自动标记未开始"
 msgstr "Auto Mark as Not Started"
 
+#: app/constants/file.py:81 app/constants/output.py:17
+#: app/constants/project.py:33 app/modules/archive_import/constants.py:18
+msgid "排队中"
+msgstr "In queue."
+
 #: app/constants/file.py:82
 msgid "自动标记中"
 msgstr "Auto-tagging in progress."
@@ -377,9 +359,7 @@ msgstr "Unknown character set."
 
 #: app/constants/file.py:101
 msgid "文件无法读取，请确认文件完好或尝试重新上传"
-msgstr ""
-"The file cannot be read. Please ensure the file is intact or try re-"
-"uploading."
+msgstr "The file cannot be read. Please ensure the file is intact or try re-uploading."
 
 #: app/constants/file.py:104
 msgid "图片读取失败，请稍后再试（1）"
@@ -449,6 +429,11 @@ msgstr "The source file is being organized."
 msgid "压缩中"
 msgstr "Compressing."
 
+#: app/constants/output.py:21 app/constants/project.py:22
+#: app/modules/archive_import/constants.py:23
+msgid "已完成"
+msgstr "Completed."
+
 #: app/constants/output.py:22
 msgid "导出错误，请重试"
 msgstr "Export error, please try again."
@@ -475,9 +460,7 @@ msgstr "Error."
 
 #: app/constants/project.py:49
 msgid "从 Labelplus 文本导入中断，请重试，如仍出现同样错误，请联系开发团队"
-msgstr ""
-"Import from Labelplus text interrupted, please try again. If the same "
-"error occurs, please contact the development team."
+msgstr "Import from Labelplus text interrupted, please try again. If the same error occurs, please contact the development team."
 
 #: app/constants/project.py:53
 msgid "从 Labelplus 文本导入时，没有有效的翻译目标语言"
@@ -619,39 +602,39 @@ msgstr "Cannot delete system role."
 msgid "此项目/团队不允许申请加入"
 msgstr "This project/team is not open for joining."
 
-#: app/core/rbac.py:488
+#: app/core/rbac.py:503
 msgid "用户不存在于团队"
 msgstr "User does not exist in the team."
 
-#: app/core/rbac.py:498
+#: app/core/rbac.py:513
 msgid "退出成功"
 msgstr "Logout successful."
 
-#: app/core/rbac.py:502
+#: app/core/rbac.py:517
 msgid "您没有删除用户权限"
 msgstr "You do not have permission to delete users."
 
-#: app/core/rbac.py:505
+#: app/core/rbac.py:520
 msgid "只能删除角色等级比您低的用户"
 msgstr "You can only delete users with a role level lower than yours."
 
-#: app/core/rbac.py:525
+#: app/core/rbac.py:540
 msgid "您不能修改自己的角色"
 msgstr "You cannot modify your role."
 
-#: app/core/rbac.py:528
+#: app/core/rbac.py:543
 msgid "您没有修改用户角色权限"
 msgstr "You do not have permission to modify user roles."
 
-#: app/core/rbac.py:532
+#: app/core/rbac.py:547
 msgid "只能为比您角色等级低的用户设置角色"
 msgstr "Can only assign roles to users with a lower role level than yours."
 
-#: app/core/rbac.py:535
+#: app/core/rbac.py:550
 msgid "只能为用户设置比您角色等级低的角色"
 msgstr "You can only assign roles that are lower than your own."
 
-#: app/core/rbac.py:563
+#: app/core/rbac.py:578
 msgid "默认角色不能设置为创建者"
 msgstr "The default role cannot be set as the creator."
 
@@ -684,7 +667,7 @@ msgid "无效的令牌"
 msgstr "Invalid token."
 
 #: app/exceptions/auth.py:65 app/exceptions/identity.py:51
-#: app/models/user.py:277 app/validators/v_code.py:27
+#: app/models/user.py:301 app/validators/v_code.py:27
 msgid "用户不存在"
 msgstr "User does not exist."
 
@@ -714,9 +697,7 @@ msgstr "Length must be 2 to 18 characters."
 
 #: app/exceptions/auth.py:135
 msgid "邮箱不在白名单中，请联系管理员添加"
-msgstr ""
-"The email is not on the whitelist, please contact the administrator to "
-"add it."
+msgstr "The email is not on the whitelist, please contact the administrator to add it."
 
 #: app/exceptions/base.py:27
 msgid "未定义的错误"
@@ -929,9 +910,7 @@ msgstr "The group is full, unable to apply to join or invite new members."
 
 #: app/exceptions/join_process.py:135
 msgid "创建者无法退出团体，请转移创建者权限后操作"
-msgstr ""
-"The creator cannot leave the group. Please transfer creator permissions "
-"before proceeding."
+msgstr "The creator cannot leave the group. Please transfer creator permissions before proceeding."
 
 #: app/exceptions/join_process.py:145
 msgid "此团体不向公众开放"
@@ -995,9 +974,7 @@ msgstr "Images are being automatically tagged, please wait a moment."
 
 #: app/exceptions/project.py:53
 msgid "图片已自动标记完成，不能再次自动标记"
-msgstr ""
-"The image has been automatically tagged and cannot be automatically "
-"tagged again."
+msgstr "The image has been automatically tagged and cannot be automatically tagged again."
 
 #: app/exceptions/project.py:63
 msgid "文件不存在"
@@ -1083,6 +1060,14 @@ msgstr "There is no plan to terminate the project."
 msgid "\"翻译数据.txt\" 解析失败"
 msgstr "\"translation_data.txt\" parsing failed."
 
+#: app/exceptions/project.py:287
+msgid "未检测到存在校对修改的内容，无需发送邮件"
+msgstr "No proofread changes detected; no email is needed"
+
+#: app/exceptions/project.py:297
+msgid "项目中未找到配置了邮箱的翻译成员"
+msgstr ""
+
 #: app/exceptions/team.py:13
 msgid "团队异常"
 msgstr "Team error."
@@ -1162,11 +1147,9 @@ msgstr "The file name prefix is empty."
 
 #: app/models/file.py:163
 msgid "文件名不能包含下列任何字符: \\ / : * ? \" < > |"
-msgstr ""
-"The file name cannot contain any of the following characters: \\ / : * ? "
-"\" < > |."
+msgstr "The file name cannot contain any of the following characters: \\ / : * ? \" < > |."
 
-#: app/models/file.py:1452
+#: app/models/file.py:1492
 msgid "只有图片文件能移动原文顺序"
 msgstr "Only image files can change the original order."
 
@@ -1746,27 +1729,27 @@ msgstr "Supervisor"
 msgid "见习翻译"
 msgstr "Trainee Translator"
 
-#: app/models/project.py:463
+#: app/models/project.py:465
 msgid "必须是Language对象"
 msgstr "Must be a Language object."
 
-#: app/models/project.py:599
+#: app/models/project.py:601
 msgid "只允许项目所属团队成员申请加入"
 msgstr "Only members of the project team are allowed to apply to join."
 
-#: app/models/project.py:666
+#: app/models/project.py:668
 msgid "暂不支持的文件格式"
 msgstr "File format not supported"
 
-#: app/models/project.py:993
+#: app/models/project.py:1022 app/templates/email/proofread_draft.html:60
 msgid "框内"
 msgstr "In the box."
 
-#: app/models/project.py:995
+#: app/models/project.py:1024 app/templates/email/proofread_draft.html:61
 msgid "框外"
 msgstr "Out of the box"
 
-#: app/models/project.py:998
+#: app/models/project.py:1027
 msgid "可使用 LabelPlus Photoshop 脚本导入 psd 中"
 msgstr "You can use the LabelPlus Photoshop script to import into PSD."
 
@@ -1804,9 +1787,7 @@ msgstr "View others' termbase."
 
 #: app/models/team.py:76
 msgid "若无此权限只能查看自己创建的术语库中的术语"
-msgstr ""
-"If you do not have this permission, you can only view the terms in the "
-"termbase you created."
+msgstr "If you do not have this permission, you can only view the terms in the termbase you created."
 
 #: app/models/team.py:79
 msgid "设置他人术语库"
@@ -1814,9 +1795,7 @@ msgstr "Set others' termbase."
 
 #: app/models/team.py:80
 msgid "若无此权限只能修改自己创建的术语库设置"
-msgstr ""
-"Without this permission, you can only modify the settings of the termbase"
-" you created."
+msgstr "Without this permission, you can only modify the settings of the termbase you created."
 
 #: app/models/team.py:83
 msgid "删除他人术语库"
@@ -1832,9 +1811,7 @@ msgstr "Add a term to another's terminology database."
 
 #: app/models/team.py:88
 msgid "若无此权限只能在自己创建的术语库中增加术语"
-msgstr ""
-"If you do not have this permission, you can only add terms to the "
-"termbase you created."
+msgstr "If you do not have this permission, you can only add terms to the termbase you created."
 
 #: app/models/team.py:91
 msgid "修改他人术语"
@@ -1842,9 +1819,7 @@ msgstr "Modify others' terms."
 
 #: app/models/team.py:93
 msgid "若无此权限只能修改自己创建的术语或自己术语库中的术语"
-msgstr ""
-"If you do not have this permission, you can only modify terms you created"
-" or terms in your own termbase."
+msgstr "If you do not have this permission, you can only modify terms you created or terms in your own termbase."
 
 #: app/models/team.py:97
 msgid "删除他人术语"
@@ -1852,9 +1827,7 @@ msgstr "Delete others' terms."
 
 #: app/models/team.py:99
 msgid "若无此权限只能删除自己创建的术语或自己术语库中的术语"
-msgstr ""
-"If you do not have this permission, you can only delete terms you created"
-" or terms in your own termbase."
+msgstr "If you do not have this permission, you can only delete terms you created or terms in your own termbase."
 
 #: app/models/team.py:103
 msgid "创建项目"
@@ -1924,84 +1897,356 @@ msgstr "Member"
 msgid "见习成员"
 msgstr "Trainee"
 
-#: app/models/user.py:257
+#: app/models/user.py:270
 msgid "令牌格式错误，应形如 Bearer x.x.x"
 msgstr "Illegal auth token. It should be like Bearer x.x.x."
 
-#: app/models/user.py:271
+#: app/models/user.py:295
 #, python-brace-format
 msgid "令牌错误，{error}"
 msgstr "Token error, {error}"
 
-#: app/models/user.py:280
+#: app/models/user.py:304
 msgid "密码已修改，请重新登录"
 msgstr "Password updated. Please log in again."
 
-#: app/models/user.py:569
+#: app/models/user.py:628
 msgid "此用户已有申请，已直接加入"
 msgstr "This user already has an application and has been directly added."
 
-#: app/models/user.py:613
+#: app/models/user.py:672
 msgid "加入成功，管理员继承自团队"
 msgstr "Joined successfully as administrator due to team settings."
 
-#: app/models/user.py:626
+#: app/models/user.py:685
 msgid "管理员先前邀请了您，已直接加入"
 msgstr "The administrator previously invited you, so you have been directly added."
 
-#: app/models/user.py:633
+#: app/models/user.py:692
 msgid "项目不允许申请加入"
 msgstr "The project is not open for joining."
 
-#: app/models/user.py:639
+#: app/models/user.py:698
 msgid "加入成功"
 msgstr "Successfully joined."
 
-#: app/models/user.py:642
+#: app/models/user.py:701
 msgid "申请成功，请等待管理员审核"
 msgstr "Application Sent. Please wait for administrator to review."
 
-#: app/models/v_code.py:304
+#: app/models/v_code.py:297
 msgid "重置您的安全邮箱"
 msgstr "Reset your recovery email."
 
-#: app/models/v_code.py:305
+#: app/models/v_code.py:298
 msgid "确认您的安全邮箱"
 msgstr "Confirm your recovery email."
 
-#: app/models/v_code.py:306
+#: app/models/v_code.py:299
 msgid "重置您的密码"
 msgstr "Reset your password."
 
-#: app/validators/archive_import.py:21
+#: app/modules/archive_import/api.py:53
+msgid "该项目已有归档导入任务进行中"
+msgstr ""
+
+#: app/modules/archive_import/api.py:68
+msgid "归档导入任务已加入队列"
+msgstr "Queued"
+
+#: app/modules/archive_import/api.py:118
+msgid "归档导入提示已关闭"
+msgstr ""
+
+#: app/modules/archive_import/constants.py:19
+msgid "解析归档链接"
+msgstr ""
+
+#: app/modules/archive_import/constants.py:20
+msgid "下载归档中"
+msgstr ""
+
+#: app/modules/archive_import/constants.py:21
+msgid "校验归档中"
+msgstr ""
+
+#: app/modules/archive_import/constants.py:22
+msgid "导入图片中"
+msgstr "Searching in images."
+
+#: app/modules/archive_import/constants.py:24
+msgid "导入失败"
+msgstr ""
+
+#: app/modules/archive_import/validators.py:36
 msgid "gid 不能为空"
 msgstr "gid cannot be empty"
 
-#: app/validators/archive_import.py:23
+#: app/modules/archive_import/validators.py:38
 msgid "token 不能为空"
 msgstr "token cannot be empty"
 
-#: app/validators/archive_import.py:39
+#: app/services/file_order.py:62
+msgid "文件顺序正在保存，请稍后重试"
+msgstr ""
+
+#: app/services/file_order.py:66
+msgid "文件列表或顺序已变化，请取消编辑后重新加载"
+msgstr ""
+
+#: app/services/file_order.py:70
+msgid "必须提供当前目录全部图片，且不可重复"
+msgstr ""
+
+#: app/tasks/proofread_draft.py:49
+#, python-format
+msgid "「%(project)s」校对稿 · 正在生成标注图（%(done)d/%(total)d）"
+msgstr "「%(project)s」Proofread draft · generating annotated images (%(done)d/%(total)d)"
+
+#: app/tasks/proofread_draft.py:84
+#, python-format
+msgid "「%(project)s」校对稿过大，已取消寄送"
+msgstr "「%(project)s」Proofread draft too large, sending cancelled"
+
+#: app/tasks/proofread_draft.py:91
+#, python-format
+msgid "「%(project)s」校对稿已寄送"
+msgstr "「%(project)s」Proofread draft sent"
+
+#: app/tasks/proofread_draft.py:107
+#, python-format
+msgid "「%(project)s」校对稿生成失败（请重新寄送）"
+msgstr "「%(project)s」Proofread draft generation failed (please resend)"
+
+#: app/templates/email/confirm_email.html:3
+#: app/templates/email/confirm_email.txt:1
+#, python-brace-format
+msgid "欢迎来到{site_name}！"
+msgstr ""
+
+#: app/templates/email/confirm_email.html:6
+#: app/templates/email/confirm_email.txt:2
+msgid "以下是核验您安全邮箱的验证码："
+msgstr ""
+
+#: app/templates/email/confirm_email.html:11
+#: app/templates/email/confirm_email.txt:4
+#, python-brace-format
+msgid "如您没有注册{site_name}账号，请忽略此邮件。"
+msgstr ""
+
+#: app/templates/email/confirm_email.html:12
+#: app/templates/email/confirm_email.txt:5
+#: app/templates/email/reset_email.html:13
+#: app/templates/email/reset_email.txt:5
+#: app/templates/email/reset_password.html:13
+#: app/templates/email/reset_password.txt:5
+msgid "敬礼"
+msgstr ""
+
+#: app/templates/email/confirm_email.html:16
+#: app/templates/email/confirm_email.txt:6
+#: app/templates/email/reset_email.html:16
+#: app/templates/email/reset_email.txt:6
+#: app/templates/email/reset_password.html:16
+#: app/templates/email/reset_password.txt:6
+#, python-brace-format
+msgid "{site_name}"
+msgstr ""
+
+#: app/templates/email/confirm_email.txt:7
+#: app/templates/email/reset_email.txt:7
+#: app/templates/email/reset_password.txt:7
+msgid "本站地址："
+msgstr ""
+
+#: app/templates/email/proofread_draft.html:6
+#, python-format
+msgid "[%(project_name)s] 校对稿修改反馈"
+msgstr "[%(project_name)s] Proofread draft feedback"
+
+#: app/templates/email/proofread_draft.html:13
+#, python-format
+msgid "%(site_name)s · 校对反馈"
+msgstr "%(site_name)s · Proofread feedback"
+
+#: app/templates/email/proofread_draft.html:14
+#, python-format
+msgid "%(project_name)s · 校对修改稿"
+msgstr "%(project_name)s · Proofread draft"
+
+#: app/templates/email/proofread_draft.html:16
+#, python-format
+msgid "目标语言：%(language)s"
+msgstr "Target language: %(language)s"
+
+#: app/templates/email/proofread_draft.html:18
+#: app/templates/email/proofread_draft.txt:5
+msgid "校对反馈人："
+msgstr "Proofreader: "
+
+#: app/templates/email/proofread_draft.html:20
+msgid "时间："
+msgstr "Time: "
+
+#: app/templates/email/proofread_draft.html:23
+#, python-format
+msgid "共挑出 %(changed_pages)s 个页面存在校对修改，共计 %(changed_labels)s 处标签变更"
+msgstr "Found %(changed_pages)s page(s) with proofread changes, %(changed_labels)s changed label(s) in total"
+
+#: app/templates/email/proofread_draft.html:23
+#, python-format
+msgid "，附 %(tips)s 条批注"
+msgstr ", plus %(tips)s annotation(s)"
+
+#: app/templates/email/proofread_draft.html:23
+msgid "。请查阅以下页面及高亮变更详情。"
+msgstr ". Please review the pages and highlighted changes below."
+
+#: app/templates/email/proofread_draft.html:35
+#, python-format
+msgid "第 %(page_number)s 页"
+msgstr "Page %(page_number)s"
+
+#: app/templates/email/proofread_draft.html:41
+#, python-format
+msgid "本页 %(count)s 处修改 (标签：#%(labels)s)"
+msgstr "%(count)s changed on this page (labels: #%(labels)s)"
+
+#: app/templates/email/proofread_draft.html:46
+#, python-format
+msgid "本页 %(count)s 条批注"
+msgstr "%(count)s annotation(s) on this page"
+
+#: app/templates/email/proofread_draft.html:62
+msgid "点击查看大图"
+msgstr "Click to view full image"
+
+#: app/templates/email/proofread_draft.html:80
+#: app/templates/email/proofread_draft.txt:17
+#: app/templates/email/proofread_draft.txt:20
+msgid "校"
+msgstr "PR"
+
+#: app/templates/email/proofread_draft.html:85
+#: app/templates/email/proofread_draft.txt:22
+msgid "注"
+msgstr "N"
+
+#: app/templates/email/proofread_draft.html:86
+msgid "已注销用户"
+msgstr "Deleted user"
+
+#: app/templates/email/proofread_draft.html:100
+#, python-format
+msgid "您可以直接回复本邮件与校对者沟通（回复地址：<a href=\"mailto:%(reply_address)s\" style=\"color: #d94c66; text-decoration: none;\">%(reply_address)s</a>）。"
+msgstr "You can reply to this email to reach the proofreader (reply-to: <a href=\"mailto:%(reply_address)s\" style=\"color: #d94c66; text-decoration: none;\">%(reply_address)s</a>)."
+
+#: app/templates/email/proofread_draft.html:105
+msgid "前往项目详情查看"
+msgstr "Open project page"
+
+#: app/templates/email/proofread_draft.html:109
+#: app/templates/email/proofread_draft.txt:35
+#, python-format
+msgid "%(site_name)s · 在线翻译协作平台"
+msgstr "%(site_name)s · Online translation collaboration platform"
+
+#: app/templates/email/proofread_draft.txt:1
+#, python-format
+msgid "[%(site_name)s] %(project)s · 校对修改稿反馈"
+msgstr "[%(site_name)s] %(project)s · Proofread draft feedback"
+
+#: app/templates/email/proofread_draft.txt:4
+#, fuzzy
+msgid "目标语言："
+msgstr "Add target language."
+
+#: app/templates/email/proofread_draft.txt:6
+msgid "发送时间："
+msgstr "Sent at: "
+
+#: app/templates/email/proofread_draft.txt:8
+#, python-format
+msgid "概览：共挑出 %(pages)s 个页面存在校对修改，共计 %(labels)s 处标签变更。"
+msgstr "Overview: %(pages)s page(s) with proofread changes, %(labels)s changed label(s) in total."
+
+#: app/templates/email/proofread_draft.txt:12
+#, python-format
+msgid "【第 %(page_number)s 页】%(file_name)s (%(count)s 处修改%(tips)s)"
+msgstr "Page %(page_number)s: %(file_name)s (%(count)s changed%(tips)s)"
+
+#: app/templates/email/proofread_draft.txt:12
+#, python-format
+msgid "，%(count)s 条批注"
+msgstr ", %(count)s annotation(s)"
+
+#: app/templates/email/proofread_draft.txt:13
+msgid "页面图片："
+msgstr "Page image: "
+
+#: app/templates/email/proofread_draft.txt:29
+#, python-format
+msgid "可以直接回复本邮件以与校对者沟通 (%(address)s)。"
+msgstr "You can reply to this email to reach the proofreader (%(address)s)."
+
+#: app/templates/email/proofread_draft.txt:32
+msgid "项目地址："
+msgstr "Project URL: "
+
+#: app/templates/email/reset_email.html:3
+msgid "您申请解除安全邮箱"
+msgstr ""
+
+#: app/templates/email/reset_email.html:6 app/templates/email/reset_email.txt:2
+msgid "1、如果您未曾申请过解除安全邮箱，很可能您的密码已经泄露，请立即修改密码！"
+msgstr ""
+
+#: app/templates/email/reset_email.html:8 app/templates/email/reset_email.txt:3
+msgid "2、如果是您申请的，您的解除安全邮箱验证码如下："
+msgstr ""
+
+#: app/templates/email/reset_email.txt:1
+msgid "您申请解除安全邮箱！"
+msgstr ""
+
+#: app/templates/email/reset_password.html:3
+#: app/templates/email/reset_password.txt:1
+#, fuzzy
+msgid "您申请重置密码！"
+msgstr "Reset password"
+
+#: app/templates/email/reset_password.html:6
+#: app/templates/email/reset_password.txt:2
+msgid "1、如果您未曾申请重置密码，请忽略此邮件。"
+msgstr ""
+
+#: app/templates/email/reset_password.html:8
+#: app/templates/email/reset_password.txt:3
+msgid "2、如果是您申请的，您的重置密码验证码如下："
+msgstr ""
+
+#: app/utils/external_url.py:39
 msgid "归档 API 地址必须使用 HTTPS"
 msgstr "Archive API URL must use HTTPS"
 
-#: app/validators/archive_import.py:41
+#: app/utils/external_url.py:41
 msgid "归档 API 地址无效"
 msgstr "Invalid Archive API URL"
 
-#: app/validators/archive_import.py:43
+#: app/utils/external_url.py:43
 msgid "归档 API 地址不能包含 query 或 fragment"
 msgstr "Archive API URL cannot contain query or fragment"
 
-#: app/validators/archive_import.py:52
+#: app/utils/external_url.py:52
 msgid "归档 API 地址不能指向本地或内部主机"
 msgstr "Archive API URL cannot point to a local or internal host"
 
-#: app/validators/archive_import.py:55
+#: app/utils/external_url.py:55
 msgid "归档 API 地址不能指向私有或保留 IP"
 msgstr "Archive API URL cannot point to a private or reserved IP"
 
-#: app/validators/archive_import.py:64
+#: app/utils/external_url.py:66
 msgid "团队归档 API 地址不在站点允许的主机白名单中"
 msgstr "Team Archive API URL is not in the site's allowed host allowlist"
 
@@ -2116,4 +2361,10 @@ msgstr "No valid parameters."
 
 #~ msgid "已删除"
 #~ msgstr "Deleted"
+
+#~ msgid "[校]"
+#~ msgstr ""
+
+#~ msgid "[注]"
+#~ msgstr ""
 

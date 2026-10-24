@@ -625,7 +625,10 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
         site_origin = str(current_app.config.get("SITE_ORIGIN", "")).rstrip("/")
         project_url = f"{site_origin}/project/{project.id}" if site_origin else ""
         total_changed = sum(p["changed_count"] for p in changed_pages)
-        subject = f"[{project.name}] 校对稿修改反馈 - {target_lang_name}"
+        subject = gettext("[%s] 校对稿修改反馈 - %s") % (
+            project.name,
+            target_lang_name,
+        )
 
         if current_app.config.get("ENABLE_NOTIFICATIONS"):
             import uuid
@@ -656,7 +659,14 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
                 "scope_id": str(project.id),
                 "title": "「%s」校对稿 · 正在生成标注图（0/%d）"
                 % (project.name, len(changed_pages)),
-                "body": f"{self.current_user.name} 寄送了 {target_lang_name} 校对反馈，共 {len(changed_pages)} 页、{total_changed} 处修改。\n[project]{project.id}[/project]",
+                "body": gettext(
+                    "%(sender)s 寄送了 %(language)s 校对反馈，共 %(pages)s 页、%(changes)s 处修改。\n[project]%(project_id)s[/project]",
+                    sender=self.current_user.name,
+                    language=target_lang_name,
+                    pages=len(changed_pages),
+                    changes=total_changed,
+                    project_id=project.id,
+                ),
                 "audience": {"mode": "condition", "tags": ["translator"]},
                 "email": True,
                 # 草稿态不会被 notification_scan 自动派发；烤图完成后由后台任务翻转为 preparing

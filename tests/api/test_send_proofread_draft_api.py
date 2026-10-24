@@ -180,17 +180,18 @@ class SendProofreadDraftAPITestCase(MoeAPITestCase):
         self.assertEqual(template_data["changed_pages"][0]["tip_count"], 3)
         self.assertEqual(template_data["total_tips"], 3)
 
-        # 渲染后的 HTML 与纯文本包含批注内容（自动转义，不需要 safe）
+        # 渲染后的 HTML 与纯文本包含批注内容（自动转义，不需要 safe）。
+        # 测试环境的邮件语言为英文（get_locale 的 best_match 默认 en）
         html_out = render_template("email/proofread_draft.html", **template_data)
         self.assertIn("语气再自然一点", html_out)
         self.assertIn("proofreader1：", html_out)
-        self.assertIn("3 条批注", html_out)
+        self.assertIn("3 annotation(s) on this page", html_out)
         text_out = render_template("email/proofread_draft.txt", **template_data)
-        self.assertIn("[注] translator1: 标点用全角", text_out)
+        self.assertIn("[N] translator1: 标点用全角", text_out)
 
-        # 行式分组结构：[校]/[注] 徽章存在，三列表头已移除
-        self.assertIn(">校</span>", html_out)
-        self.assertIn(">注</span>", html_out)
+        # 行式分组结构：[校]/[注] 徽章存在（英文环境 PR/N），三列表头已移除
+        self.assertIn(">PR</span>", html_out)
+        self.assertIn(">N</span>", html_out)
         self.assertNotIn("<th", html_out)
 
         # 定位标记：坐标与框内外字段进入数据；测试环境文件无真实 URL
@@ -206,8 +207,8 @@ class SendProofreadDraftAPITestCase(MoeAPITestCase):
             "http://example.com/p01.marked.webp"
         )
         html_out = render_template("email/proofread_draft.html", **template_data)
-        self.assertIn("框内", html_out)
-        self.assertIn("框外", html_out)
+        self.assertIn("In the box.", html_out)
+        self.assertIn("Out of the box", html_out)
         # 邮件内嵌图用烤图，点开大图仍是原图
         self.assertIn('src="http://example.com/p01.marked.webp"', html_out)
         self.assertIn('href="http://example.com/p01.png"', html_out)

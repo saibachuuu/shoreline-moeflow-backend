@@ -1,35 +1,35 @@
-[{{ site_name }}] {{ project.name }} · 校对修改稿反馈
+{{ gettext("[%(site_name)s] %(project)s · 校对修改稿反馈", site_name=site_name, project=project.name) }}
 ==================================================
 
-目标语言：{{ target_language_name }}
-校对反馈人：{{ sender_name }}
-发送时间：{{ send_time }}
+{{ gettext("目标语言：") }}{{ target_language_name }}
+{{ gettext("校对反馈人：") }}{{ sender_name }}
+{{ gettext("发送时间：") }}{{ send_time }}
 
-概览：共挑出 {{ changed_pages|length }} 个页面存在校对修改，共计 {{ total_changed_labels }} 处标签变更。
+{{ gettext("概览：共挑出 %(pages)s 个页面存在校对修改，共计 %(labels)s 处标签变更。", pages=changed_pages|length, labels=total_changed_labels) }}
 
 --------------------------------------------------
 {% for page in changed_pages %}
-【第 {{ page.page_number }} 页】{{ page.file_name }} ({{ page.changed_count }} 处修改{% if page.tip_count %}，{{ page.tip_count }} 条批注{% endif %})
-{% if page.image_url %}页面图片：{{ page.image_url }}{% endif %}
+{{ gettext("【第 %(page_number)s 页】%(file_name)s (%(count)s 处修改%(tips)s)", page_number=page.page_number, file_name=page.file_name, count=page.changed_count, tips=(gettext("，%(count)s 条批注", count=page.tip_count) if page.tip_count else "")) }}
+{% if page.image_url %}{{ gettext("页面图片：") }}{{ page.image_url }}{% endif %}
 {% for label in page.labels %}
 {% if label.is_changed %}
 * [#{{ label.label_num }}] {{ label.orig_translation }}
-  [校] {{ label.proofread_translation }}
+  [{% trans %}校{% endtrans %}] {{ label.proofread_translation }}
 {% else %}
   [#{{ label.label_num }}] {{ label.orig_translation }}
-  [校] {{ label.proofread_translation or label.orig_translation }}
+  [{% trans %}校{% endtrans %}] {{ label.proofread_translation or label.orig_translation }}
 {% endif %}
-{% for tip in label.tips %}  [注] {{ tip.author or '?' }}: {{ tip.content }}{% endfor %}
+{% for tip in label.tips %}  [{% trans %}注{% endtrans %}] {{ tip.author or '?' }}: {{ tip.content }}{% endfor %}
 {% endfor %}
 
 --------------------------------------------------
 {% endfor %}
 
 {% if reply_address %}
-可以直接回复本邮件以与校对者沟通 ({{ reply_address }})。
+{{ gettext("可以直接回复本邮件以与校对者沟通 (%(address)s)。", address=reply_address) }}
 {% endif %}
 {% if project_url %}
-项目地址：{{ project_url }}
+{{ gettext("项目地址：") }}{{ project_url }}
 {% endif %}
 
-{{ site_name }} · 在线翻译协作平台
+{{ gettext("%(site_name)s · 在线翻译协作平台", site_name=site_name) }}

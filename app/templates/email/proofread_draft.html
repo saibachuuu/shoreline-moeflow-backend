@@ -3,24 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>[{{ project.name }}] 校对稿修改反馈</title>
+<title>{% trans project_name=project.name %}[{{ project_name }}] 校对稿修改反馈{% endtrans %}</title>
 </head>
 <body style="margin: 0; padding: 20px 10px; background-color: #f4f6f8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #24292e;">
 <div style="max-width: 960px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #e1e4e8;">
     
     <!-- 头部横幅 -->
     <div style="padding: 24px 24px 16px; border-bottom: 1px solid #eaecef; background: linear-gradient(to bottom, #ffffff, #fafbfc);">
-        <div style="font-size: 13px; color: #d94c66; font-weight: 600; margin-bottom: 4px;">{{ site_name }} · 校对反馈</div>
-        <h2 style="margin: 0 0 8px; color: #1f2328; font-size: 20px;">{{ project.name }} · 校对修改稿</h2>
+        <div style="font-size: 13px; color: #d94c66; font-weight: 600; margin-bottom: 4px;">{% trans %}{{ site_name }} · 校对反馈{% endtrans %}</div>
+        <h2 style="margin: 0 0 8px; color: #1f2328; font-size: 20px;">{% trans project_name=project.name %}{{ project_name }} · 校对修改稿{% endtrans %}</h2>
         <div style="font-size: 13px; color: #57606a; line-height: 1.6;">
-            <span>目标语言：<strong style="color: #24292e;">{{ target_language_name }}</strong></span>
+            <span>{% trans language=target_language_name %}目标语言：{{ language }}{% endtrans %}</span>
             <span style="margin: 0 8px; color: #d0d7de;">|</span>
-            <span>校对反馈人：<strong style="color: #24292e;">{{ sender_name }}</strong></span>
+            <span>{% trans %}校对反馈人：{% endtrans %}<strong style="color: #24292e;">{{ sender_name }}</strong></span>
             <span style="margin: 0 8px; color: #d0d7de;">|</span>
-            <span>时间：{{ send_time }}</span>
+            <span>{% trans %}时间：{% endtrans %}{{ send_time }}</span>
         </div>
         <div style="background-color: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 14px; margin-top: 14px; font-size: 13px; color: #24292e;">
-            共挑出 <strong style="color: #cf222e;">{{ changed_pages|length }}</strong> 个页面存在校对修改，共计 <strong style="color: #cf222e;">{{ total_changed_labels }}</strong> 处标签变更{% if total_tips %}，附 <strong style="color: #9a6700;">{{ total_tips }}</strong> 条批注{% endif %}。请查阅以下页面及高亮变更详情。
+            {{ gettext("共挑出 %(changed_pages)s 个页面存在校对修改，共计 %(changed_labels)s 处标签变更", changed_pages=changed_pages|length, changed_labels=total_changed_labels) }}{% if total_tips %}{{ gettext("，附 %(tips)s 条批注", tips=total_tips) }}{% endif %}{{ gettext("。请查阅以下页面及高亮变更详情。") }}
         </div>
     </div>
 
@@ -32,18 +32,18 @@
             <div style="background-color: #f6f8fa; padding: 10px 16px; border-bottom: 1px solid #d0d7de; font-size: 14px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
                     <div>
-                        <strong style="font-size: 15px; color: #1f2328;">第 {{ page.page_number }} 页</strong>
+                        <strong style="font-size: 15px; color: #1f2328;">{% trans page_number=page.page_number %}第 {{ page_number }} 页{% endtrans %}</strong>
                         <span style="color: #57606a; margin-left: 6px;">({{ page.file_name }})</span>
                     </div>
                     <div>
                         {% if page.changed_count > 0 %}
                         <span style="background-color: #fff8c5; color: #9a6700; border: 1px solid #f1e05a; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px;">
-                            本页 {{ page.changed_count }} 处修改 (标签：#{{ page.changed_label_nums|join(', #') }})
+                            {% trans count=page.changed_count, labels=page.changed_label_nums|join(', #') %}本页 {{ count }} 处修改 (标签：#{{ labels }}){% endtrans %}
                         </span>
                         {% endif %}
                         {% if page.tip_count %}
                         <span style="background-color: #ffeef1; color: #d94c66; border: 1px solid #ff8f9c; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px;{% if page.changed_count > 0 %} margin-left: 6px;{% endif %}">
-                            本页 {{ page.tip_count }} 条批注
+                            {% trans count=page.tip_count %}本页 {{ count }} 条批注{% endtrans %}
                         </span>
                         {% endif %}
                     </div>
@@ -56,11 +56,11 @@
                 <a href="{{ page.image_url }}" target="_blank" style="display: inline-block; text-decoration: none;">
                     <img src="{{ page.marked_image_url or page.image_url }}" alt="{{ page.file_name }}" style="max-width: 100%; width: auto; max-height: 540px; border-radius: 6px; border: 1px solid #d0d7de; box-shadow: 0 1px 4px rgba(0,0,0,0.08); display: block; margin: 0 auto;" />
                 </a>
-                <div style="font-size: 11px; color: #8c959f; margin-top: 8px;">
-                    <span style="display: inline-block; width: 12px; height: 12px; line-height: 12px; border-radius: 50%; background-color: #FF657C; color: #ffffff; font-size: 9px; font-weight: bold; text-align: center;">N</span> 框内
-                    <span style="display: inline-block; width: 12px; height: 12px; line-height: 12px; border-radius: 50%; background-color: #FFD583; color: #664d03; font-size: 9px; font-weight: bold; text-align: center;">N</span> 框外
-                    <span style="margin: 0 4px; color: #d0d7de;">|</span> 点击查看大图
-                </div>
+                        <div style="font-size: 11px; color: #8c959f; margin-top: 8px;">
+                            <span style="display: inline-block; width: 12px; height: 12px; line-height: 12px; border-radius: 50%; background-color: #FF657C; color: #ffffff; font-size: 9px; font-weight: bold; text-align: center;">N</span> {% trans %}框内{% endtrans %}
+                            <span style="display: inline-block; width: 12px; height: 12px; line-height: 12px; border-radius: 50%; background-color: #FFD583; color: #664d03; font-size: 9px; font-weight: bold; text-align: center;">N</span> {% trans %}框外{% endtrans %}
+                            <span style="margin: 0 4px; color: #d0d7de;">|</span> {% trans %}点击查看大图{% endtrans %}
+                        </div>
             </div>
             {% endif %}
             <div style="padding: 0 14px 14px; font-size: 13px; line-height: 1.5; text-align: left;">
@@ -77,13 +77,13 @@
                         {% endif %}
                     </div>
                     <div style="padding: 0 8px; margin-top: 4px; word-break: break-word;{% if not label.is_changed %} color: #8c8c8c;{% endif %}">
-                        <span style="display: inline-block; background-color: #FF657C; color: #ffffff; border-radius: 3px; font-size: 11px; font-weight: bold; padding: 1px 5px; margin-right: 6px;">校</span>{% if label.is_changed %}{{ label.diff_html | safe }}{% else %}{{ label.proofread_translation or label.orig_translation }}{% endif %}
+                        <span style="display: inline-block; background-color: #FF657C; color: #ffffff; border-radius: 3px; font-size: 11px; font-weight: bold; padding: 1px 5px; margin-right: 6px;">{% trans %}校{% endtrans %}</span>{% if label.is_changed %}{{ label.diff_html | safe }}{% else %}{{ label.proofread_translation or label.orig_translation }}{% endif %}
                     </div>
                     {% if label.tips %}
                     {% for tip in label.tips %}
                     <div style="padding: 0 8px; margin-top: 4px; word-break: break-word;{% if not loop.first %} padding-left: 34px;{% endif %}">
-                        {% if loop.first %}<span style="display: inline-block; background-color: #fff8c5; color: #9a6700; border: 1px solid #f1e05a; border-radius: 3px; font-size: 11px; font-weight: bold; padding: 0 4px; margin-right: 6px;">注</span>{% endif %}
-                        <strong>{{ tip.author or '已注销用户' }}：</strong>{{ tip.content }}<span style="color: #8c959f; margin-left: 6px; font-size: 11px;">{{ tip.edit_time }}</span>
+                        {% if loop.first %}<span style="display: inline-block; background-color: #fff8c5; color: #9a6700; border: 1px solid #f1e05a; border-radius: 3px; font-size: 11px; font-weight: bold; padding: 0 4px; margin-right: 6px;">{% trans %}注{% endtrans %}</span>{% endif %}
+                        <strong>{% if tip.author %}{{ tip.author }}{% else %}{% trans %}已注销用户{% endtrans %}{% endif %}：</strong>{{ tip.content }}<span style="color: #8c959f; margin-left: 6px; font-size: 11px;">{{ tip.edit_time }}</span>
                     </div>
                     {% endfor %}
                     {% endif %}
@@ -97,16 +97,16 @@
     <!-- 底部信息 -->
     <div style="padding: 16px 24px; background-color: #fafbfc; border-top: 1px solid #eaecef; text-align: center; font-size: 12px; color: #57606a; line-height: 1.6;">
         {% if reply_address %}
-        <div style="margin-bottom: 6px;">您可以直接回复本邮件与校对者沟通（回复地址：<a href="mailto:{{ reply_address }}" style="color: #d94c66; text-decoration: none;">{{ reply_address }}</a>）。</div>
+        <div style="margin-bottom: 6px;">{% trans reply_address=reply_address %}您可以直接回复本邮件与校对者沟通（回复地址：<a href="mailto:{{ reply_address }}" style="color: #d94c66; text-decoration: none;">{{ reply_address }}</a>）。{% endtrans %}</div>
         {% endif %}
         {% if project_url %}
         <div style="margin-bottom: 8px;">
             <a href="{{ project_url }}" target="_blank" style="display: inline-block; background-color: #FF657C; color: #ffffff; padding: 6px 14px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 500;">
-                前往项目详情查看
+                {% trans %}前往项目详情查看{% endtrans %}
             </a>
         </div>
         {% endif %}
-        <div style="color: #8c959f;">{{ site_name }} · 在线翻译协作平台</div>
+        <div style="color: #8c959f;">{% trans %}{{ site_name }} · 在线翻译协作平台{% endtrans %}</div>
     </div>
 </div>
 </body>
