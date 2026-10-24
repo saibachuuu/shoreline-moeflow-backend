@@ -2,6 +2,7 @@ from marshmallow import fields, post_load, validates_schema
 
 from app.exceptions import ProjectSetNotExistError, LanguageNotExistError
 from app.models.project import Project
+from app.models.identity_tag import WORKER_TAGS
 from app.models.language import Language
 from app.constants.role import RoleType
 from app.constants.output import OutputTypes
@@ -216,6 +217,11 @@ class EditProjectSchema(DefaultSchema):
     # 人员名单植入页序号：正数从前往后（1=第一页），负数从后往前（-1=最后一页），
     # 非零整数；null 表示未设置（跟随团队/默认）；不校验是否超出实际页数。
     staff_list_page = fields.Int(allow_none=True, validate=[not_zero])
+    # 职位锁定（仅团队创建者可改，权限检查在视图层）
+    position_lock_enabled = fields.Bool()
+    position_lock_tags = fields.List(
+        fields.Str(validate=[need_in(WORKER_TAGS)]), allow_none=True
+    )
 
     @validates_schema
     def verify_default_role(self, data, **kwargs):

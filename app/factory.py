@@ -1,17 +1,20 @@
 import logging
+
 import celery
 from flask import Flask
 from flask_babel import Babel
+
+import app.config as _app_config
+import app.translations as app_translations
 from app.core.api import init_api
 from app.core.rbac import AllowApplyType, ApplicationCheckType
-from app.services.google_storage import GoogleStorage
-import app.config as _app_config
-from app.services.oss import OSS
-from .apis import register_apis
-import app.translations as app_translations
-
 from app.models import connect_db
-from app.modules import discover as discover_modules, log_enabled_modules
+from app.modules import discover as discover_modules
+from app.modules import log_enabled_modules
+from app.services.google_storage import GoogleStorage
+from app.services.oss import OSS
+
+from .apis import register_apis
 
 logger = logging.getLogger(__name__)
 
@@ -153,14 +156,14 @@ def create_or_override_default_admin(app: Flask):
         admin_user.admin = True
         admin_user.save()
         logger.debug(
-            "已创建管理员 {}，请通过安全渠道完成首次登录配置".format(admin_user.email)
+            f"已创建管理员 {admin_user.email}，请通过安全渠道完成首次登录配置"
         )
     return admin_user
 
 
 def create_default_team(admin_user):
-    from app.models.team import Team, TeamRole
     from app.models.site_setting import SiteSetting
+    from app.models.team import Team, TeamRole
 
     if Team.objects().count() == 0:
         logger.debug("creating default team")
@@ -187,8 +190,8 @@ def init_db(app: Flask):
     # 初始化角色，语言
     from app.models.language import Language
     from app.models.project import ProjectRole
-    from app.models.team import TeamRole
     from app.models.site_setting import SiteSetting
+    from app.models.team import TeamRole
 
     TeamRole.init_system_roles()
     ProjectRole.init_system_roles()

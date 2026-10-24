@@ -12,6 +12,7 @@ import logging
 import uuid
 
 from bson import ObjectId
+from flask_babel import gettext
 from mongoengine.errors import NotUniqueError, SaveConditionError, ValidationError
 
 from app.exceptions import (
@@ -40,6 +41,7 @@ from app.services.identity_permission import (
     NORMAL,
     CLEARED,
     IdentityPermissionService,
+    locked_project_tags,
 )
 from app.utils.search import normalize_search_text
 
@@ -230,6 +232,7 @@ class ProjectMemberService:
         external=False,
         allow_creator=False,
     ):
+        cls._ensure_tags_not_locked(project, operator, tags)
         return IdentityPermissionService.validate_project_tags(
             operator,
             project,
@@ -238,6 +241,36 @@ class ProjectMemberService:
             external=external,
             allow_creator=allow_creator,
         )
+
+    @classmethod
+    def _ensure_tags_not_locked(cls, project, operator, tags):
+        """职位锁定：受锁职位的指派（含取消指派）仅团队创建者可操作。"""
+        locked = locked_project_tags(project)
+        if (
+            locked
+            and (locked & set(tags or ()))
+            and not IdentityPermissionService.is_team_creator(
+                operator, project.team
+            )
+        ):
+            raise NoPermissionError(
+                gettext("职位已被团队创建者锁定，仅团队创建者可以修改")
+            )
+
+    @classmethod
+    def _ensure_member_not_locked(cls, project, operator, member):
+        """职位锁定：移除拥有受锁职位的成员仅团队创建者可操作。"""
+        locked = locked_project_tags(project)
+        if (
+            locked
+            and (locked & set(member.tags or ()))
+            and not IdentityPermissionService.is_team_creator(
+                operator, project.team
+            )
+        ):
+            raise NoPermissionError(
+                gettext("该成员持有已被锁定的职位，仅团队创建者可以移除")
+            )
 
     @staticmethod
     def _external_id_for_operation(project, operation_id):
@@ -470,6 +503,8 @@ class ProjectMemberService:
                 raise MemberAlreadyExistsError
             if not cls._is_manager(operator, project):
                 raise NoPermissionError
+            # 恢复被移除的成员 = 重新赋予其原有职位，受职位锁定约束
+            cls._ensure_member_not_locked(project, operator, member)
             expected = payload.get("expected_member_version")
             if not isinstance(expected, int):
                 raise InvalidIdentityRequestError("expected_member_version is required")
@@ -576,6 +611,9 @@ class ProjectMemberService:
             raise InvalidIdentityRequestError("unsupported member fields")
         if "status" in changes and changes["status"] != "removed":
             raise InvalidIdentityRequestError("only status=removed is supported")
+        if changes.get("status") == "removed":
+            # 移除拥有受锁职位的成员同样受职位锁定约束
+            cls._ensure_member_not_locked(project, operator, member)
 
         manager = cls._is_manager(operator, project)
         can_open = IdentityPermissionService.qualification_check_disabled(project)

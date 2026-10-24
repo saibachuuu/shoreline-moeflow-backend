@@ -631,3 +631,26 @@ class IdentityPermissionService:
             if not definition.get("assignable", True):
                 raise ProtectedIdentityTagError
         return normalized
+
+
+def locked_project_tags(project) -> frozenset[str]:
+    """项目当前被锁定的职位集合（团队创建者专属编辑权）。
+
+    一级总开关开启时锁定 admin 与所有团队自定义职位；二级为七工种多选。
+    总开关关闭时没有任何职位被锁。
+    """
+    if not getattr(project, "position_lock_enabled", False):
+        return frozenset()
+    team = getattr(project, "team", None)
+    custom = set()
+    if team is not None:
+        policy = IdentityTagPolicy.objects(team=team).first()
+        if policy is not None:
+            custom = {
+                code
+                for code in (policy.project_tags or {})
+                if code not in PROJECT_TAGS
+            }
+    return frozenset(
+        {"admin", *custom, *getattr(project, "position_lock_tags", [])}
+    )

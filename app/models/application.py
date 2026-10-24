@@ -103,6 +103,12 @@ class Application(Document):
             if member is not None:
                 project_tags = list(member.tags)
                 project_display_name = member.display_name
+                # 职位锁定：恢复持有受锁职位的成员仅团队创建者可审批入组
+                from app.services.project_member import ProjectMemberService
+
+                ProjectMemberService._ensure_member_not_locked(
+                    self.group, operator, member
+                )
         # 提供role的话则设置为此角色
         # 用于已有申请,管理员又通过接口进行邀请,并设置了角色,这时候就用这个角色加入用户
         self.user.join(self.group, role)

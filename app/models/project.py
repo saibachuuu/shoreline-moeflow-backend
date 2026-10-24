@@ -382,6 +382,12 @@ class Project(GroupMixin, Document):
     # == 解析原文 ==
     ocring = BooleanField(db_field="oc", default=False)  # 是否正在进行项目级解析
 
+    # == 职位锁定（仅团队创建者可改） ==
+    # 一级总开关：开启后，项目 admin 与团队自定义职位的指派收紧为仅团队创建者
+    position_lock_enabled = BooleanField(db_field="ple", default=False)
+    # 二级：在 7 个工种内多选锁定的职位（总开关关闭时视为空）
+    position_lock_tags = ListField(StringField(), db_field="plt", default=list)
+
     # == 缓存 ==
     target_count = IntField(db_field="tc", required=True, default=0)  # 目标语言数量缓存
     folder_count = IntField(db_field="fo", required=True, default=0)  # 文件数量
@@ -1130,6 +1136,8 @@ class Project(GroupMixin, Document):
             "source_language": self.source_language.code,
             "target_languages": [target.language.code for target in self.targets()],
             "staff_list_page": self.staff_list_page,
+            "position_lock_enabled": self.position_lock_enabled,
+            "position_lock_tags": list(self.position_lock_tags),
         }
         return data
 
@@ -1231,6 +1239,8 @@ class Project(GroupMixin, Document):
             "permission_sources": permission_sources,
             "can_order_files": self.can_order_files(user, snapshot=snapshot),
             "staff_list_page": self.staff_list_page,
+            "position_lock_enabled": self.position_lock_enabled,
+            "position_lock_tags": list(self.position_lock_tags),
             "create_time": self.create_time.isoformat(),
             "edit_time": self.edit_time.isoformat(),
             "source_language": self.source_language.to_api(),

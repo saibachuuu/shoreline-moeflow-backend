@@ -124,7 +124,11 @@ class InvitationListAPI(MoeAPIView):
             if not self.current_user.can(group, group.permission_cls.INVITE_USER):
                 raise NoPermissionError
             from app.services.project_invitation import ProjectInvitationAdapter
+            from app.services.project_member import ProjectMemberService
 
+            ProjectMemberService._ensure_tags_not_locked(
+                group, self.current_user, data["tags"]
+            )
             normalized = IdentityPermissionService.validate_project_tags(
                 self.current_user,
                 group,
@@ -201,7 +205,11 @@ class InvitationAPI(MoeAPIView):
             # do not apply; the tag policy (and worker qualification mode) is
             # enforced by the shared validator.
             from app.services.project_invitation import ProjectInvitationAdapter
+            from app.services.project_member import ProjectMemberService
 
+            ProjectMemberService._ensure_tags_not_locked(
+                invitation.group, self.current_user, data["tags"]
+            )
             normalized = IdentityPermissionService.validate_project_tags(
                 self.current_user,
                 invitation.group,

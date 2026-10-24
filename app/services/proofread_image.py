@@ -9,8 +9,11 @@ HTML 里把标记叠加到图片上，因此标记在发送前直接烤进图片
 
 import hashlib
 import io
+import logging
 
 from PIL import Image, ImageDraw, ImageFont
+
+logger = logging.getLogger(__name__)
 
 # 与前端编辑器标记配色一致（style.ts primaryColor / Label.tsx 框外黄色）
 IN_COLOR = (255, 101, 124, 235)
@@ -116,7 +119,12 @@ def _load_base_image(file):
                 buf = oss.download(file_prefix, f"resample-{save_name_prefix}.webp")
                 return Image.open(io.BytesIO(buf.read()))
             except Exception:
-                pass
+                # 缩略图缺失/损坏时降级为原图，不必中断寄送
+                logger.debug(
+                    "resample thumbnail unavailable for %s, using source image",
+                    file.save_name,
+                    exc_info=True,
+                )
     try:
         raw = file.download_real_file()
         return Image.open(io.BytesIO(raw.read()))

@@ -1,14 +1,13 @@
-from app.constants.file import FileType, ParseStatus
-from app.constants.output import OutputTypes
-from app.tasks.ocr import ocr
-from app.models.team import TeamPermission
-from app.tasks.email import send_email
-from app.tasks.proofread_draft import bake_and_dispatch
 import datetime
-from app.exceptions.project import ProjectFinishedError, TargetNotExistError
+
 from flask import current_app
 from flask_babel import gettext
 
+from app.constants.file import FileType, ParseStatus
+from app.constants.output import OutputTypes
+from app.constants.project import ProjectStatus
+from app.constants.storage import StorageType
+from app.core.responses import MoePagination
 from app.core.views import MoeAPIView
 from app.decorators.auth import token_required
 from app.decorators.url import fetch_model
@@ -16,21 +15,24 @@ from app.exceptions import (
     NoPermissionError,
     RequestDataEmptyError,
 )
+from app.exceptions.output import OutputTooFastError
+from app.exceptions.project import ProjectFinishedError, TargetNotExistError
+from app.models.output import Output
 from app.models.project import Project, ProjectPermission
 from app.models.target import Target
-from app.models.output import Output
+from app.models.team import TeamPermission
+from app.services.identity_permission import IdentityPermissionService
 from app.services.project_member import ProjectMemberService
 from app.services.proofread_image import marked_image_url
-from app.constants.project import ProjectStatus
-from app.constants.storage import StorageType
-from app.validators.project import (
-    EditProjectSchema,
-    CreateProjectTargetSchema,
-    CreateOutputSchema,
-)
-from app.core.responses import MoePagination
+from app.tasks.email import send_email
+from app.tasks.ocr import ocr
 from app.tasks.output_project import output_project
-from app.exceptions.output import OutputTooFastError
+from app.tasks.proofread_draft import bake_and_dispatch
+from app.validators.project import (
+    CreateOutputSchema,
+    CreateProjectTargetSchema,
+    EditProjectSchema,
+)
 
 
 class ProjectAPI(MoeAPIView):
@@ -95,6 +97,16 @@ class ProjectAPI(MoeAPIView):
         data = self.get_json(EditProjectSchema(), context={"project": project})
         if not data:
             raise RequestDataEmptyError
+        # 职位锁定为团队创建者专属设置
+        if (
+            "position_lock_enabled" in data or "position_lock_tags" in data
+        ) and not IdentityPermissionService.is_team_creator(
+            self.current_user, project.team
+        ):
+            raise NoPermissionError(gettext("只有团队创建者可以修改职位锁定设置"))
+        if data.get("position_lock_enabled") is False:
+            # 总开关关闭时二级锁定一并清空
+            data["position_lock_tags"] = []
         project.update(**data)
         project.reload()
         project_data = project.to_api(user=self.current_user)
@@ -430,12 +442,13 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
         @apiParam {String} [file_id] 可选，限制为单个文件
         """
         import html
+
         from app.exceptions.project import (
             FileNotExistError,
             NoTranslatorMemberError,
             ProofreadDraftNoChangesError,
         )
-        from app.models.file import File, Source, Translation, Tip
+        from app.models.file import File, Source, Tip, Translation
         from app.models.project_member import ProjectMember
         from app.validators.project import SendProofreadDraftSchema
 
@@ -451,7 +464,9 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
 
         if current_app.config.get("ENABLE_NOTIFICATIONS"):
             import hashlib
+
             from flask import request
+
             from app.models.notification import Notification
             from app.services.notification_content import fail
 
@@ -632,6 +647,7 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
 
         if current_app.config.get("ENABLE_NOTIFICATIONS"):
             import uuid
+
             from app.models.notification import NotificationReceipt
             from app.services import notifications as notification_service
 

@@ -4,31 +4,33 @@ import hashlib
 import json
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+
 from bson import ObjectId
 from flask import current_app
 from mongoengine import NotUniqueError
+
+from app.models.identity_tag import TEAM_BASE_TAGS, WORKER_TAGS
 from app.models.notification import (
     Notification,
-    NotificationReceipt,
+    NotificationAudit,
     NotificationDelivery,
     NotificationPolicy,
     NotificationPreference,
-    NotificationAudit,
-    NotificationVerifiedEmail,
+    NotificationReceipt,
     NotificationThrottle,
+    NotificationVerifiedEmail,
 )
-from app.models.user import User
-from app.models.team import Team
 from app.models.project import Project
-from app.models.team_member import TeamMember
 from app.models.project_member import ProjectMember
-from app.models.identity_tag import WORKER_TAGS, TEAM_BASE_TAGS
+from app.models.team import Team
+from app.models.team_member import TeamMember
+from app.models.user import User
 from app.services.notification_content import (
     fail,
-    prepare,
-    plain,
     normalize,
+    plain,
+    prepare,
     search_tokens,
     visible_nodes,
 )
@@ -155,7 +157,7 @@ def date_value(value):
         result = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if result.tzinfo is None:
             raise ValueError()
-        return result.astimezone(timezone.utc).replace(tzinfo=None)
+        return result.astimezone(UTC).replace(tzinfo=None)
     except ValueError:
         fail("日期必须是带时区的 ISO 8601 格式")
 
@@ -546,13 +548,11 @@ def receipt_visible(note, user, cache=None):
         return False
     if not live(note):
         # 校对稿后台生成期间（draft/preparing），仅发件人本人的收件箱可见，用于展示任务进度
-        if (
+        return (
             note.event_type == "proofread_feedback"
             and note.state in ("draft", "preparing")
             and user.id == note.actor_id
-        ):
-            return True
-        return False
+        )
     # Scope-membership/qualification changes apply to historic receipts too.
     cache = cache if cache is not None else {}
     key = (
