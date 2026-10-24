@@ -3,6 +3,7 @@ from app.constants.output import OutputTypes
 from app.tasks.ocr import ocr
 from app.models.team import TeamPermission
 from app.tasks.email import send_email
+from app.tasks.proofread_draft import bake_and_dispatch
 import datetime
 from app.exceptions.project import ProjectFinishedError, TargetNotExistError
 from flask import current_app
@@ -19,6 +20,7 @@ from app.models.project import Project, ProjectPermission
 from app.models.target import Target
 from app.models.output import Output
 from app.services.project_member import ProjectMemberService
+from app.services.proofread_image import marked_image_url
 from app.constants.project import ProjectStatus
 from app.constants.storage import StorageType
 from app.validators.project import (
@@ -433,7 +435,7 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
             NoTranslatorMemberError,
             ProofreadDraftNoChangesError,
         )
-        from app.models.file import File, Source, Translation
+        from app.models.file import File, Source, Translation, Tip
         from app.models.project_member import ProjectMember
         from app.validators.project import SendProofreadDraftSchema
 
@@ -498,8 +500,22 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
             scan_files = all_image_files
 
         changed_pages = []
+        total_tips = 0
         for file in scan_files:
             sources = Source.objects(file=file).order_by("rank")
+            # 一次取出本页全部批注，按原文分组挂到对应标签上
+            tips_by_source = {}
+            for tip in Tip.objects(source__in=sources, target=target).order_by(
+                "create_time"
+            ):
+                tips_by_source.setdefault(str(tip.source.id), []).append(
+                    {
+                        "author": tip.user.name if tip.user else None,
+                        "content": tip.content,
+                        "edit_time": tip.edit_time.strftime("%Y-%m-%d %H:%M"),
+                    }
+                )
+            page_tip_count = sum(len(v) for v in tips_by_source.values())
             page_labels = []
             changed_count = 0
             for idx, source in enumerate(sources):
@@ -532,10 +548,14 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
                         "proofread_translation": proof_content,
                         "is_changed": is_changed,
                         "diff_html": diff_html,
+                        "tips": tips_by_source.get(str(source.id), []),
+                        "x": source.x or 0,
+                        "y": source.y or 0,
+                        "position_type": source.position_type,
                     }
                 )
 
-            if changed_count > 0:
+            if changed_count > 0 or page_tip_count > 0:
                 img_url = ""
                 try:
                     resample = getattr(file, "resample_url", "")
@@ -554,12 +574,14 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
                         "image_url": img_url,
                         "total_sources": len(sources),
                         "changed_count": changed_count,
+                        "tip_count": page_tip_count,
                         "changed_label_nums": [
                             lbl["label_num"] for lbl in page_labels if lbl["is_changed"]
                         ],
                         "labels": page_labels,
                     }
                 )
+                total_tips += page_tip_count
 
         if not changed_pages:
             raise ProofreadDraftNoChangesError
@@ -606,40 +628,39 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
         subject = f"[{project.name}] 校对稿修改反馈 - {target_lang_name}"
 
         if current_app.config.get("ENABLE_NOTIFICATIONS"):
-            import json
             import uuid
-            from flask import render_template
+            from app.models.notification import NotificationReceipt
             from app.services import notifications as notification_service
 
-            template_data = {
+            pending = {
                 "site_name": site_name,
-                "project": project,
-                "target": target,
+                "project_name": project.name,
                 "target_language_name": target_lang_name,
                 "sender_name": self.current_user.name,
                 "sender_email": current_user_email,
                 "send_time": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
                 "total_changed_labels": total_changed,
+                "total_tips": total_tips,
                 "changed_pages": changed_pages,
                 "project_url": project_url,
                 "reply_address": current_user_email,
             }
             payload = {
-                "html": render_template("email/proofread_draft.html", **template_data),
-                "text": render_template("email/proofread_draft.txt", **template_data),
+                "pending": pending,
                 "reply_to": current_user_email,
                 "cc_myself": cc_myself,
                 "operation": operation,
             }
-            if len(json.dumps(payload).encode("utf-8")) > 8 * 1024 * 1024:
-                fail("校对稿过大，请指定较小的文件范围")
             notification_data = {
                 "category": "project",
                 "scope_id": str(project.id),
-                "title": subject,
+                "title": "「%s」校对稿 · 正在生成标注图（0/%d）"
+                % (project.name, len(changed_pages)),
                 "body": f"{self.current_user.name} 寄送了 {target_lang_name} 校对反馈，共 {len(changed_pages)} 页、{total_changed} 处修改。\n[project]{project.id}[/project]",
                 "audience": {"mode": "condition", "tags": ["translator"]},
                 "email": True,
+                # 草稿态不会被 notification_scan 自动派发；烤图完成后由后台任务翻转为 preparing
+                "draft": True,
             }
             candidate = notification_service.make_note(
                 self.current_user,
@@ -658,13 +679,28 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
                 event_type="proofread_feedback",
                 payload=payload,
             )
+            # 受理即让发件人在收件箱看到进行中的任务（receipt 平时在派发时才创建）
+            NotificationReceipt.objects(
+                notification_id=note.id, user_id=self.current_user.id
+            ).update_one(
+                upsert=True,
+                set_on_insert__created_at=datetime.datetime.utcnow(),
+                set_on_insert__archived=False,
+            )
+            bake_and_dispatch.delay(str(note.id))
             return {
-                "message": gettext("校对反馈已受理，邮件投递状态请查看通知记录"),
+                "message": gettext("校对反馈已受理，正在后台生成标注图，完成后自动寄出"),
                 "notification_id": str(note.id),
                 "state": note.state,
                 "changed_pages_count": len(changed_pages),
                 "changed_labels_count": total_changed,
             }, 202
+
+        # 直发路径没有后台任务，仍同步生成烤图（保持既有行为）
+        for page in changed_pages:
+            page["marked_image_url"] = marked_image_url(
+                File.objects(id=page["file_id"]).first(), page["labels"]
+            )
 
         send_email(
             to_address=to_emails,
@@ -679,6 +715,7 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
                 "sender_email": current_user_email,
                 "send_time": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
                 "total_changed_labels": total_changed,
+                "total_tips": total_tips,
                 "changed_pages": changed_pages,
                 "project_url": project_url,
                 "reply_address": current_user_email,

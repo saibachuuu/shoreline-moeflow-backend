@@ -88,6 +88,7 @@ def create_celery(app: Flask) -> celery.Celery:
             "app.tasks.email",
             "app.tasks.notification",
             "app.tasks.notification_security",
+            "app.tasks.proofread_draft",
             "app.tasks.file_parse",
             "app.tasks.output_team_projects",
             "app.tasks.output_project",

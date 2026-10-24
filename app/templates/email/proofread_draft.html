@@ -10,7 +10,7 @@
     
     <!-- 头部横幅 -->
     <div style="padding: 24px 24px 16px; border-bottom: 1px solid #eaecef; background: linear-gradient(to bottom, #ffffff, #fafbfc);">
-        <div style="font-size: 13px; color: #0969da; font-weight: 600; margin-bottom: 4px;">{{ site_name }} · 校对反馈</div>
+        <div style="font-size: 13px; color: #d94c66; font-weight: 600; margin-bottom: 4px;">{{ site_name }} · 校对反馈</div>
         <h2 style="margin: 0 0 8px; color: #1f2328; font-size: 20px;">{{ project.name }} · 校对修改稿</h2>
         <div style="font-size: 13px; color: #57606a; line-height: 1.6;">
             <span>目标语言：<strong style="color: #24292e;">{{ target_language_name }}</strong></span>
@@ -20,7 +20,7 @@
             <span>时间：{{ send_time }}</span>
         </div>
         <div style="background-color: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 14px; margin-top: 14px; font-size: 13px; color: #24292e;">
-            共挑出 <strong style="color: #cf222e;">{{ changed_pages|length }}</strong> 个页面存在校对修改，共计 <strong style="color: #cf222e;">{{ total_changed_labels }}</strong> 处标签变更。请查阅以下页面及高亮变更详情。
+            共挑出 <strong style="color: #cf222e;">{{ changed_pages|length }}</strong> 个页面存在校对修改，共计 <strong style="color: #cf222e;">{{ total_changed_labels }}</strong> 处标签变更{% if total_tips %}，附 <strong style="color: #9a6700;">{{ total_tips }}</strong> 条批注{% endif %}。请查阅以下页面及高亮变更详情。
         </div>
     </div>
 
@@ -36,61 +36,60 @@
                         <span style="color: #57606a; margin-left: 6px;">({{ page.file_name }})</span>
                     </div>
                     <div>
+                        {% if page.changed_count > 0 %}
                         <span style="background-color: #fff8c5; color: #9a6700; border: 1px solid #f1e05a; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px;">
                             本页 {{ page.changed_count }} 处修改 (标签：#{{ page.changed_label_nums|join(', #') }})
                         </span>
+                        {% endif %}
+                        {% if page.tip_count %}
+                        <span style="background-color: #ffeef1; color: #d94c66; border: 1px solid #ff8f9c; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px;{% if page.changed_count > 0 %} margin-left: 6px;{% endif %}">
+                            本页 {{ page.tip_count }} 条批注
+                        </span>
+                        {% endif %}
                     </div>
                 </div>
             </div>
 
-            <!-- 图文两栏：左侧嵌入图片，右侧文字修改列表 -->
-            <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
-                <tr>
-                    {% if page.image_url %}
-                    <td style="width: 280px; min-width: 240px; max-width: 320px; vertical-align: top; padding: 14px; border-right: 1px solid #eaecef; background-color: #fafbfc; text-align: center;">
-                        <a href="{{ page.image_url }}" target="_blank" style="display: inline-block; text-decoration: none;">
-                            <img src="{{ page.image_url }}" alt="{{ page.file_name }}" style="max-width: 100%; width: auto; max-height: 540px; border-radius: 6px; border: 1px solid #d0d7de; box-shadow: 0 1px 4px rgba(0,0,0,0.08); display: block; margin: 0 auto;" />
-                        </a>
-                        <div style="font-size: 11px; color: #8c959f; margin-top: 8px;">点击查看大图</div>
-                    </td>
+            <!-- 上下堆叠：图片在上，标签列表在下，适配手机邮件端 -->
+            {% if page.image_url %}
+            <div style="padding: 14px; border-bottom: 1px solid #eaecef; background-color: #fafbfc; text-align: center;">
+                <a href="{{ page.image_url }}" target="_blank" style="display: inline-block; text-decoration: none;">
+                    <img src="{{ page.marked_image_url or page.image_url }}" alt="{{ page.file_name }}" style="max-width: 100%; width: auto; max-height: 540px; border-radius: 6px; border: 1px solid #d0d7de; box-shadow: 0 1px 4px rgba(0,0,0,0.08); display: block; margin: 0 auto;" />
+                </a>
+                <div style="font-size: 11px; color: #8c959f; margin-top: 8px;">
+                    <span style="display: inline-block; width: 12px; height: 12px; line-height: 12px; border-radius: 50%; background-color: #FF657C; color: #ffffff; font-size: 9px; font-weight: bold; text-align: center;">N</span> 框内
+                    <span style="display: inline-block; width: 12px; height: 12px; line-height: 12px; border-radius: 50%; background-color: #FFD583; color: #664d03; font-size: 9px; font-weight: bold; text-align: center;">N</span> 框外
+                    <span style="margin: 0 4px; color: #d0d7de;">|</span> 点击查看大图
+                </div>
+            </div>
+            {% endif %}
+            <div style="padding: 0 14px 14px; font-size: 13px; line-height: 1.5; text-align: left;">
+                <!-- 逐标签分组：行1 序号+翻译稿 / 行2 [校] 校对内容 / 行3 [注] 批注 -->
+                {% for label in page.labels %}
+                <div style="border-bottom: 1px solid #f0f0f0; padding: 8px 0;{% if label.is_changed %} background-color: #fffbe6; border-bottom-color: #ffe58f;{% endif %}">
+                    <div style="padding: 0 8px; word-break: break-word; color: #1f2328;">
+                        {% if label.is_changed %}
+                        <span style="display: inline-block; background-color: #ffe58f; color: #d46b08; font-weight: bold; padding: 2px 6px; border-radius: 4px; font-size: 12px;">#{{ label.label_num }}</span>
+                        <span style="color: #6e7781; text-decoration: line-through;">{{ label.orig_translation }}</span>
+                        {% else %}
+                        <span style="color: #bfbfbf; font-size: 12px; font-weight: bold;">#{{ label.label_num }}</span>
+                        <span>{{ label.orig_translation }}</span>
+                        {% endif %}
+                    </div>
+                    <div style="padding: 0 8px; margin-top: 4px; word-break: break-word;{% if not label.is_changed %} color: #8c8c8c;{% endif %}">
+                        <span style="display: inline-block; background-color: #FF657C; color: #ffffff; border-radius: 3px; font-size: 11px; font-weight: bold; padding: 1px 5px; margin-right: 6px;">校</span>{% if label.is_changed %}{{ label.diff_html | safe }}{% else %}{{ label.proofread_translation or label.orig_translation }}{% endif %}
+                    </div>
+                    {% if label.tips %}
+                    {% for tip in label.tips %}
+                    <div style="padding: 0 8px; margin-top: 4px; word-break: break-word;{% if not loop.first %} padding-left: 34px;{% endif %}">
+                        {% if loop.first %}<span style="display: inline-block; background-color: #fff8c5; color: #9a6700; border: 1px solid #f1e05a; border-radius: 3px; font-size: 11px; font-weight: bold; padding: 0 4px; margin-right: 6px;">注</span>{% endif %}
+                        <strong>{{ tip.author or '已注销用户' }}：</strong>{{ tip.content }}<span style="color: #8c959f; margin-left: 6px; font-size: 11px;">{{ tip.edit_time }}</span>
+                    </div>
+                    {% endfor %}
                     {% endif %}
-                    <td style="vertical-align: top; padding: 0;">
-                        <!-- 标签修改对比表格（已移除 原文 和 状态 栏） -->
-                        <div style="overflow-x: auto;">
-                            <table style="width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.5; text-align: left;">
-                                <thead>
-                                    <tr style="background-color: #fafbfc; border-bottom: 1px solid #d0d7de; color: #57606a;">
-                                        <th style="padding: 8px 10px; width: 50px; text-align: center;">序号</th>
-                                        <th style="padding: 8px 10px; width: 42%;">翻译原稿</th>
-                                        <th style="padding: 8px 10px;">校对稿（高亮差异）</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for label in page.labels %}
-                                    {% if label.is_changed %}
-                                    <tr style="background-color: #fffbe6; border-bottom: 1px solid #ffe58f;">
-                                        <td style="padding: 9px 8px; text-align: center; vertical-align: top;">
-                                            <span style="display: inline-block; background-color: #ffe58f; color: #d46b08; font-weight: bold; padding: 2px 6px; border-radius: 4px; font-size: 12px;">#{{ label.label_num }}</span>
-                                        </td>
-                                        <td style="padding: 9px 10px; color: #6e7781; text-decoration: line-through; vertical-align: top; word-break: break-word;">{{ label.orig_translation }}</td>
-                                        <td style="padding: 9px 10px; color: #1f2328; vertical-align: top; word-break: break-word;">{{ label.diff_html | safe }}</td>
-                                    </tr>
-                                    {% else %}
-                                    <tr style="background-color: #ffffff; border-bottom: 1px solid #f0f0f0; color: #8c8c8c;">
-                                        <td style="padding: 8px 8px; text-align: center; vertical-align: top;">
-                                            <span style="color: #bfbfbf; font-size: 12px;">#{{ label.label_num }}</span>
-                                        </td>
-                                        <td style="padding: 8px 10px; vertical-align: top; word-break: break-word;">{{ label.orig_translation }}</td>
-                                        <td style="padding: 8px 10px; vertical-align: top; word-break: break-word;">{{ label.proofread_translation or label.orig_translation }}</td>
-                                    </tr>
-                                    {% endif %}
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </td>
-                </tr>
-            </table>
+                </div>
+                {% endfor %}
+            </div>
         </div>
         {% endfor %}
     </div>
@@ -98,11 +97,11 @@
     <!-- 底部信息 -->
     <div style="padding: 16px 24px; background-color: #fafbfc; border-top: 1px solid #eaecef; text-align: center; font-size: 12px; color: #57606a; line-height: 1.6;">
         {% if reply_address %}
-        <div style="margin-bottom: 6px;">您可以直接回复本邮件与校对者沟通（回复地址：<a href="mailto:{{ reply_address }}" style="color: #0969da; text-decoration: none;">{{ reply_address }}</a>）。</div>
+        <div style="margin-bottom: 6px;">您可以直接回复本邮件与校对者沟通（回复地址：<a href="mailto:{{ reply_address }}" style="color: #d94c66; text-decoration: none;">{{ reply_address }}</a>）。</div>
         {% endif %}
         {% if project_url %}
         <div style="margin-bottom: 8px;">
-            <a href="{{ project_url }}" target="_blank" style="display: inline-block; background-color: #0969da; color: #ffffff; padding: 6px 14px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 500;">
+            <a href="{{ project_url }}" target="_blank" style="display: inline-block; background-color: #FF657C; color: #ffffff; padding: 6px 14px; border-radius: 6px; text-decoration: none; font-size: 13px; font-weight: 500;">
                 前往项目详情查看
             </a>
         </div>

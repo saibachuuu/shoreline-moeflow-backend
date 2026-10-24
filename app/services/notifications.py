@@ -542,7 +542,16 @@ def live(note):
 
 
 def receipt_visible(note, user, cache=None):
-    if not live(note) or not active(user):
+    if not active(user):
+        return False
+    if not live(note):
+        # 校对稿后台生成期间（draft/preparing），仅发件人本人的收件箱可见，用于展示任务进度
+        if (
+            note.event_type == "proofread_feedback"
+            and note.state in ("draft", "preparing")
+            and user.id == note.actor_id
+        ):
+            return True
         return False
     # Scope-membership/qualification changes apply to historic receipts too.
     cache = cache if cache is not None else {}

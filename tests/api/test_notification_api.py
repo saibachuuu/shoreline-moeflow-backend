@@ -398,6 +398,7 @@ class NotificationTestCase(MoeAPITestCase):
 
     def test_proofread_migration_is_single_path_and_retry_stable(self):
         from app.models.file import Source, Translation
+        from app.tasks.proofread_draft import bake_and_dispatch
 
         file = self.project.create_file("p01.png")
         target = self.project.targets().first()
@@ -409,13 +410,33 @@ class NotificationTestCase(MoeAPITestCase):
         translation.proofreader = self.owner
         translation.save()
         path = f"/projects/{self.project.id}/targets/{target.id}/send-proofread-draft"
-        with patch("app.apis.project.send_email") as legacy:
+        with patch("app.apis.project.send_email") as legacy, patch(
+            "app.apis.project.bake_and_dispatch"
+        ) as enqueue:
             response = self.call("POST", path, data={"cc_myself": True})
             self.assertEqual(response.status_code, 202, response.json)
             note = svc.get_note(response.json["notification_id"])
             self.assertEqual(note.event_type, "proofread_feedback")
-            self.assertIn("after", note.payload["text"])
-            self.assertIn("<ins", note.payload["html"])
+            # 受理后先进入草稿态并携带待烤图数据；发件人立即拿到收件箱回执
+            self.assertEqual(note.state, "draft")
+            self.assertIn("pending", note.payload)
+            self.assertIn("changed_pages", note.payload["pending"])
+            self.assertTrue(
+                svc.receipt_visible(note, self.owner),
+                "生成期间发件人应能在收件箱看到任务",
+            )
+            self.assertFalse(
+                svc.receipt_visible(note, self.member),
+                "生成期间其他成员不可见",
+            )
+            self.assertEqual(
+                NotificationReceipt.objects(
+                    notification_id=note.id, user_id=self.owner.id
+                ).count(),
+                1,
+            )
+            enqueue.delay.assert_called_once_with(str(note.id))
+            legacy.assert_not_called()
             self.assertNotIn("recipients", response.json)
             # A retry returns the original operation, even after the underlying draft changes.
             translation.proofread_content = ""
@@ -427,10 +448,23 @@ class NotificationTestCase(MoeAPITestCase):
                 str(note.id),
             )
             legacy.assert_not_called()
-        self.drain(note)
+        # 后台任务同步执行：烤图渲染、翻转为已发布、建立全部收件回执
+        with patch("app.tasks.notification.send_notification_mail") as smtp:
+            smtp.return_value = ("sent", "")
+            bake_and_dispatch(str(note.id))
+        note.reload()
+        self.assertEqual(note.state, "published")
+        self.assertEqual(note.title, "「notification-project」校对稿已寄送")
+        self.assertIn("after", note.payload["text"])
+        self.assertIn("<ins", note.payload["html"])
+        self.assertNotIn("pending", note.payload)
         self.assertEqual(
             NotificationReceipt.objects(notification_id=note.id).count(), 2
         )
+        # 再次执行（重复投递的工单）不会重复寄送
+        with patch("app.tasks.notification.send_notification_mail") as smtp:
+            bake_and_dispatch(str(note.id))
+            smtp.assert_not_called()
 
     def test_snapshot_recovery_after_chunk_write(self):
         from mongoengine.queryset import QuerySet
