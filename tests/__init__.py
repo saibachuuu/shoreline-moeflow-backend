@@ -56,6 +56,12 @@ def create_test_app():
             "CONFIRM_EMAIL_WAIT_SECONDS": 1,
             "RESET_EMAIL_WAIT_SECONDS": 1,
             "RESET_PASSWORD_WAIT_SECONDS": 1,
+            # A dev container running the notification system must not leak
+            # ENABLE_NOTIFICATIONS into the suite: the proofread-draft API
+            # would take the background celery path (whose mongomock result
+            # backend is invalid) instead of the synchronous path the tests
+            # assert on.  Notification tests opt back in per-case.
+            "ENABLE_NOTIFICATIONS": False,
         }
     )
     # The oss singleton was initialised with the pre-override config during
