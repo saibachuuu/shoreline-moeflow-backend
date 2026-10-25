@@ -44,6 +44,45 @@ class MarkedProofreadImageTestCase(MoeAPITestCase):
             out = proofread_image._render(MagicMock(), labels)
         self.assertEqual(out.width, proofread_image.TARGET_WIDTH)
 
+    def test_marker_fingerprint_includes_opacity(self):
+        """透明度参与指纹：改设置后旧烤图自动失效重烤。"""
+        labels = [{"x": 0.5, "y": 0.3, "position_type": 1, "label_num": 1}]
+        self.assertEqual(
+            proofread_image.marker_fingerprint(labels, 92),
+            proofread_image.marker_fingerprint(labels, 92),
+        )
+        self.assertNotEqual(
+            proofread_image.marker_fingerprint(labels, 92),
+            proofread_image.marker_fingerprint(labels, 50),
+        )
+
+    def test_render_respects_opacity(self):
+        """圆点 alpha 随透明度设置缩放；默认值等于既有硬编码 235。"""
+        base = Image.new("RGB", (200, 400), (255, 255, 255))
+        labels = [{"x": 0.5, "y": 0.25, "position_type": 1, "label_num": 1}]
+        with patch.object(proofread_image, "_load_base_image", return_value=base):
+            out = proofread_image._render(MagicMock(), labels, opacity=50)
+            pixel = out.getpixel((100 + 7, 100))
+        self.assertEqual(pixel[:3], proofread_image.IN_COLOR[:3])
+        self.assertEqual(pixel[3], round(50 * 255 / 100))
+        # 默认透明度保持既有视觉
+        with patch.object(proofread_image, "_load_base_image", return_value=base):
+            out = proofread_image._render(MagicMock(), labels)
+        self.assertEqual(out.getpixel((100 + 7, 100))[3], 235)
+
+    def test_marked_image_url_disabled_returns_original(self):
+        """团队关闭标记时直接返回原图 URL，不触碰存储。"""
+        file = MagicMock()
+        file.save_name = "abc.jpg"
+        file.url = "http://orig"
+        labels = [{"x": 0.5, "y": 0.3, "position_type": 1, "label_num": 1}]
+        with patch("app.oss") as mock_oss:
+            url = proofread_image.marked_image_url(
+                file, labels, enabled=False, opacity=50
+            )
+        self.assertEqual(url, "http://orig")
+        mock_oss.is_exist.assert_not_called()
+
     def test_marked_image_url_reuses_existing(self):
         """烤图已存在时直接签名复用，不重新生成。"""
         file = MagicMock()

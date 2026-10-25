@@ -466,6 +466,64 @@ class NotificationTestCase(MoeAPITestCase):
             bake_and_dispatch(str(note.id))
             smtp.assert_not_called()
 
+    def test_proofread_marker_settings_snapshot(self):
+        """受理时快照团队标记设置进 pending，bake 按快照执行。"""
+        from app.models.file import Source, Translation
+        from app.tasks.proofread_draft import bake_and_dispatch
+
+        self.team.proofread_marker_enabled = False
+        self.team.proofread_marker_opacity = 60
+        self.team.save()
+
+        file = self.project.create_file("p01.png")
+        target = self.project.targets().first()
+        source = Source(file=file, rank=0, content="source", x=0.5, y=0.3).save()
+        translation = Translation.create(
+            content="before", source=source, target=target, user=self.member
+        )
+        translation.proofread_content = "after"
+        translation.proofreader = self.owner
+        translation.save()
+        path = f"/projects/{self.project.id}/targets/{target.id}/send-proofread-draft"
+        with patch("app.apis.project.send_email"), patch(
+            "app.apis.project.bake_and_dispatch"
+        ) as enqueue:
+            response = self.call("POST", path, data={"cc_myself": True})
+            self.assertEqual(response.status_code, 202, response.json)
+            note = svc.get_note(response.json["notification_id"])
+            # 快照进 pending：寄送后改设置不影响已受理邮件
+            self.assertFalse(note.payload["pending"]["marker_enabled"])
+            self.assertEqual(note.payload["pending"]["marker_opacity"], 60)
+            enqueue.delay.assert_called_once_with(str(note.id))
+        # 团队设置恢复默认后再次寄送：快照为默认值（开启、92%）
+        # （换 operation key，避免命中幂等去重拿回上一封通知）
+        self.team.proofread_marker_enabled = True
+        self.team.proofread_marker_opacity = 92
+        self.team.save()
+        with patch("app.apis.project.send_email"), patch(
+            "app.apis.project.bake_and_dispatch"
+        ):
+            response = self.call(
+                "POST", path, data={"cc_myself": True}, operation="test-operation-2"
+            )
+            self.assertEqual(response.status_code, 202, response.json)
+            note2 = svc.get_note(response.json["notification_id"])
+            self.assertTrue(note2.payload["pending"]["marker_enabled"])
+            self.assertEqual(note2.payload["pending"]["marker_opacity"], 92)
+        # bake 按快照执行：关闭标记时不再生成烤图
+        with patch("app.tasks.proofread_draft.marked_image_url") as marked, patch(
+            "app.tasks.notification.send_notification_mail"
+        ) as smtp:
+            marked.return_value = "http://marked.example/p01.webp"
+            smtp.return_value = ("sent", "")
+            bake_and_dispatch(str(note.id))
+        marked.assert_called_once()
+        kwargs = marked.call_args[1]
+        self.assertFalse(kwargs["enabled"])
+        self.assertEqual(kwargs["opacity"], 60)
+        note.reload()
+        self.assertEqual(note.state, "published")
+
     def test_snapshot_recovery_after_chunk_write(self):
         from mongoengine.queryset import QuerySet
 

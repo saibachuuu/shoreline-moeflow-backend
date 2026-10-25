@@ -7,6 +7,7 @@ from app.translations import lazy_gettext, gettext
 from mongoengine import (
     CASCADE,
     DENY,
+    BooleanField,
     DictField,
     Document,
     IntField,
@@ -272,6 +273,10 @@ class Team(GroupMixin, Document):
     # 团队成员默认的导出名单植入页序号（1 = 第一页，-1 = 最后一页）；
     # 未设置（None）时导出使用默认第一页，项目自身的设置优先于此值。
     staff_list_page = IntField(db_field="slp", null=True)
+    # 校对稿邮件烤图标记（框内/框外定位圆点）配置，仅团队创建者可改。
+    # opacity 为不透明度百分比 0-100，默认 92 ≈ 既有硬编码 alpha 235/255。
+    proofread_marker_enabled = BooleanField(db_field="pme", default=True)
+    proofread_marker_opacity = IntField(db_field="pmo", default=92, min_value=0, max_value=100)
     # OCR限额
     ocr_quota_month = IntField(db_field="om", default=0)  # 每月限额
     ocr_quota_used = IntField(db_field="ou", default=0)  # 当月已用限额，每月1号0点清零
@@ -543,6 +548,8 @@ class Team(GroupMixin, Document):
             "user_count": self.user_count,
             "worker_qualification_mode": self.worker_qualification_mode,
             "staff_list_page": self.staff_list_page,
+            "proofread_marker_enabled": self.proofread_marker_enabled,
+            "proofread_marker_opacity": self.proofread_marker_opacity,
             "default_role": str(self.default_role.id),
             "allow_apply_type": self.allow_apply_type,
             "application_check_type": self.application_check_type,

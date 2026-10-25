@@ -213,6 +213,64 @@ class SendProofreadDraftAPITestCase(MoeAPITestCase):
         self.assertIn('src="http://example.com/p01.marked.webp"', html_out)
         self.assertIn('href="http://example.com/p01.png"', html_out)
 
+    @patch("app.apis.project.marked_image_url")
+    @patch("app.apis.project.send_email")
+    def test_send_proofread_draft_marker_settings_applied(
+        self, mock_send_email, mock_marked
+    ):
+        """直发路径把团队标记设置（开关/透明度）传给烤图。"""
+        mock_marked.return_value = "http://marked.webp"
+        creator = self.create_user("creator", "creator@moeflow.com", "123456")
+        team = Team.create(name="team_test", creator=creator)
+        team.proofread_marker_enabled = False
+        team.proofread_marker_opacity = 60
+        team.save()
+        project = Project.create(name="proj_test", team=team)
+        target = project.targets(language=Language.by_code("zh-CN")).first()
+
+        translator_user = self.create_user("translator1", "trans@moeflow.com", "123456")
+        ProjectMember.objects.create(
+            project=project,
+            user=translator_user,
+            identity_key=f"{project.id}:{translator_user.id}",
+            display_name="翻译甲",
+            tags=["translator"],
+            status="active",
+        )
+        proofreader_user = self.create_user("proofreader1", "proof@moeflow.com", "123456")
+        token_proofreader = proofreader_user.generate_token()
+        ProjectMember.objects.create(
+            project=project,
+            user=proofreader_user,
+            identity_key=f"{project.id}:{proofreader_user.id}",
+            display_name="校对乙",
+            tags=["proofreader"],
+            status="active",
+        )
+
+        file1 = project.create_file("p01.png")
+        source1 = Source(file=file1, rank=0, content="こんにちは", x=0.5, y=0.3).save()
+        trans1 = Translation.create(
+            content="你好呀",
+            source=source1,
+            target=target,
+            user=translator_user,
+        )
+        trans1.proofread_content = "你好啊！"
+        trans1.proofreader = proofreader_user
+        trans1.save()
+
+        res = self.post(
+            f"/v1/projects/{project.id}/targets/{target.id}/send-proofread-draft",
+            token=token_proofreader,
+            json={"cc_myself": True},
+        )
+        self.assertEqual(res.status_code, 200)
+        mock_marked.assert_called_once()
+        kwargs = mock_marked.call_args[1]
+        self.assertFalse(kwargs["enabled"])
+        self.assertEqual(kwargs["opacity"], 60)
+
     @patch("app.apis.project.send_email")
     def test_send_proofread_draft_tip_only_page(self, mock_send_email):
         """只有批注、没有译文改动的页面也应纳入校对稿"""

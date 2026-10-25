@@ -23,33 +23,40 @@ OUT_TEXT_COLOR = (102, 77, 3, 255)
 MARKER_RATIO = 0.05  # 圆点直径 / 图宽
 MARKER_MIN_RADIUS = 9  # 像素，小图下限
 TARGET_WIDTH = 640  # 烤图统一宽度（邮件列宽 ~280 的 2x 余量）
+DEFAULT_OPACITY = 92  # 圆点不透明度百分比（≈ 既有硬编码 alpha 235/255）
 
 
-def marker_fingerprint(labels):
-    """标签坐标指纹，用于缓存失效。"""
+def marker_fingerprint(labels, opacity=DEFAULT_OPACITY):
+    """标签坐标指纹，用于缓存失效；透明度参与指纹，改设置后旧烤图自动失效。"""
     raw = repr(
         [
             (label["x"], label["y"], label["position_type"], label["label_num"])
             for label in labels
         ]
+        + [int(opacity)]
     ).encode()
     return hashlib.md5(raw).hexdigest()[:8]
 
 
-def marked_image_url(file, labels):
-    """返回带标记烤图的签名 URL；任何失败都降级为原图 URL。"""
+def marked_image_url(file, labels, enabled=True, opacity=DEFAULT_OPACITY):
+    """返回带标记烤图的签名 URL；任何失败都降级为原图 URL。
+
+    enabled=False（团队关闭标记）时直接返回原图；opacity 为圆点
+    不透明度百分比（0-100），编号数字始终不透明以保证可读性。
+    """
     from flask import current_app
 
     from app import oss
 
-    if not labels or not file.save_name:
+    if not enabled or not labels or not file.save_name:
         return file.url
-    processed_name = f"proofread-{marker_fingerprint(labels)}-{file.save_name.rsplit('.', 1)[0]}.webp"
+    opacity = min(100, max(0, int(opacity)))
+    processed_name = f"proofread-{marker_fingerprint(labels, opacity)}-{file.save_name.rsplit('.', 1)[0]}.webp"
     file_prefix = current_app.config["OSS_FILE_PREFIX"]
     try:
         if oss.is_exist(file_prefix, processed_name):
             return oss.sign_url(file_prefix, processed_name)
-        image = _render(file, labels)
+        image = _render(file, labels, opacity=opacity)
         if image is None:
             return file.url
         buf = io.BytesIO()
@@ -62,8 +69,14 @@ def marked_image_url(file, labels):
         return file.url
 
 
-def _render(file, labels):
-    """在页面图上画定位圆点，返回 RGBA Image；底图不可用时返回 None。"""
+def _render(file, labels, opacity=DEFAULT_OPACITY):
+    """在页面图上画定位圆点，返回 RGBA Image；底图不可用时返回 None。
+
+    opacity 为圆点底色不透明度百分比；编号数字保持不透明。
+    """
+    alpha = round(min(100, max(0, int(opacity))) * 255 / 100)
+    in_color = IN_COLOR[:3] + (alpha,)
+    out_color = OUT_COLOR[:3] + (alpha,)
     image = _load_base_image(file)
     if image is None:
         return None
@@ -81,7 +94,7 @@ def _render(file, labels):
         center_x = image.width * label["x"]
         center_y = image.height * label["y"]
         out = label["position_type"] == 2
-        fill = OUT_COLOR if out else IN_COLOR
+        fill = out_color if out else in_color
         text_fill = OUT_TEXT_COLOR if out else IN_TEXT_COLOR
         draw.ellipse(
             (

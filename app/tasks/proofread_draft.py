@@ -15,7 +15,10 @@ from flask_babel import force_locale, gettext
 
 from app import celery
 from app.models.notification import Notification, NotificationDelivery
-from app.services.proofread_image import marked_image_url
+from app.services.proofread_image import (
+    DEFAULT_OPACITY,
+    marked_image_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +35,11 @@ def bake_and_dispatch(notification_id):
     pending = note.payload.get("pending") or {}
     pages = pending.get("changed_pages") or []
     project_name = pending.get("project_name", "")
+    # 标记设置为寄送瞬间的团队配置快照；旧 payload 无此字段时退回默认行为
+    marker_enabled = bool(pending.get("marker_enabled", True))
+    marker_opacity = pending.get("marker_opacity")
+    if marker_opacity is None:
+        marker_opacity = DEFAULT_OPACITY
     # 邮件在 worker 内渲染没有请求上下文语言，显式固定为站点默认语言；
     # 将来若按收件人语言分信，只需在此处替换 locale 来源
     with force_locale(current_app.config["BABEL_DEFAULT_LOCALE"]):
@@ -42,7 +50,10 @@ def bake_and_dispatch(notification_id):
                 file = File.objects(id=page.get("file_id")).first()
                 if file is not None:
                     page["marked_image_url"] = marked_image_url(
-                        file, page.get("labels") or []
+                        file,
+                        page.get("labels") or [],
+                        enabled=marker_enabled,
+                        opacity=marker_opacity,
                     )
                 Notification.objects(id=note.id).update_one(
                     set__title=gettext(

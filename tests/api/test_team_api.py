@@ -18,6 +18,7 @@ from app.models.user import User
 from app.constants.project import ProjectStatus
 from app.constants.role import RoleType
 from app.services.project_lifecycle import ProjectLifecycleService
+from app.services.team_member import TeamMemberService
 from app.exceptions.base import ValidateError
 from tests import DEFAULT_PROJECT_SETS_COUNT, DEFAULT_TEAMS_COUNT, MoeAPITestCase
 
@@ -84,6 +85,90 @@ class TeamAPITestCase(MoeAPITestCase):
         self.assertErrorEqual(data)
         team1.reload()
         self.assertIsNone(team1.staff_list_page)
+
+    def test_edit_team_proofread_marker_creator_only(self):
+        """校对稿标记开关/透明度只允许团队创建者修改，透明度限制 0-100。"""
+        token = self.create_user("11", "1@1.com", "111111").generate_token()
+        member_role = Team.role_cls.by_system_code("beginner")
+        data = self.post(
+            "/v1/teams",
+            json={
+                "name": "11",
+                "allow_apply_type": AllowApplyType.NONE,
+                "application_check_type": ApplicationCheckType.ADMIN_CHECK,
+                "default_role": str(member_role.id),
+                "intro": "",
+            },
+            token=token,
+        )
+        self.assertErrorEqual(data)
+        team1 = Team.objects(id=data.json["team"]["id"]).first()
+        # 默认值 = 既有视觉（开启、92%），且随团队信息返回
+        self.assertTrue(team1.proofread_marker_enabled)
+        self.assertEqual(92, team1.proofread_marker_opacity)
+        self.assertIn("proofread_marker_enabled", data.json["team"])
+        self.assertIn("proofread_marker_opacity", data.json["team"])
+
+        # 管理员（持有 CHANGE 权限）同样被拒
+        admin = self.create_user("12", "2@2.com", "111111")
+        TeamMemberService.add(
+            team1,
+            self.get_creator(team1),
+            {
+                "user_id": str(admin.id),
+                "base_tag": "admin",
+                "worker_qualifications": [],
+                "tags": [],
+            },
+        )
+        denied = self.put(
+            f"/v1/teams/{str(team1.id)}",
+            token=admin.generate_token(),
+            json={"proofread_marker_enabled": False, "proofread_marker_opacity": 50},
+        )
+        self.assertErrorEqual(denied, NoPermissionError)
+        team1.reload()
+        self.assertTrue(team1.proofread_marker_enabled)
+        self.assertEqual(92, team1.proofread_marker_opacity)
+
+        # 创建者可改
+        data = self.put(
+            f"/v1/teams/{str(team1.id)}",
+            token=token,
+            json={"proofread_marker_enabled": False, "proofread_marker_opacity": 50},
+        )
+        self.assertErrorEqual(data)
+        team1.reload()
+        self.assertFalse(team1.proofread_marker_enabled)
+        self.assertEqual(50, team1.proofread_marker_opacity)
+
+        # 透明度边界：0 与 100 合法，越界非法
+        data = self.put(
+            f"/v1/teams/{str(team1.id)}", token=token, json={"proofread_marker_opacity": 0}
+        )
+        self.assertErrorEqual(data)
+        team1.reload()
+        self.assertEqual(0, team1.proofread_marker_opacity)
+        data = self.put(
+            f"/v1/teams/{str(team1.id)}",
+            token=token,
+            json={"proofread_marker_opacity": 100},
+        )
+        self.assertErrorEqual(data)
+        team1.reload()
+        self.assertEqual(100, team1.proofread_marker_opacity)
+        data = self.put(
+            f"/v1/teams/{str(team1.id)}",
+            token=token,
+            json={"proofread_marker_opacity": 101},
+        )
+        self.assertErrorEqual(data, ValidateError)
+        data = self.put(
+            f"/v1/teams/{str(team1.id)}",
+            token=token,
+            json={"proofread_marker_opacity": -1},
+        )
+        self.assertErrorEqual(data, ValidateError)
 
     def test_get_team_list(self):
         """

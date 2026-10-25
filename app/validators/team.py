@@ -1,4 +1,5 @@
 from marshmallow import fields, post_load, validates_schema
+from marshmallow.validate import Range
 
 from app.models.team import Team
 from app.constants.role import RoleType
@@ -62,6 +63,10 @@ class EditTeamSchema(DefaultSchema):
     worker_qualification_mode = fields.Str(validate=[need_in(["qualified", "open"])])
     # 团队内项目默认的名单植入页序号（同项目设置，非零整数；null 表示未设置）。
     staff_list_page = fields.Int(allow_none=True, validate=[not_zero])
+    # 校对稿邮件烤图标记开关与圆点不透明度（百分比 0-100）。
+    # 仅团队创建者可以修改（在 API 层强制）。
+    proofread_marker_enabled = fields.Bool()
+    proofread_marker_opacity = fields.Int(validate=[Range(min=0, max=100)])
     # 画廊归档导入的第三方档案 API key 列表（每项 {id?, key?, remark?, enabled?}）。
     # 含 id 的项按 id 更新/保留；不含 id 且含 key 的项为新增；未引用的旧 id 被删除。
     archive_api_keys = fields.List(fields.Dict())

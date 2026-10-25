@@ -650,7 +650,16 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
 
             from app.models.notification import NotificationReceipt
             from app.services import notifications as notification_service
+            from app.services.proofread_image import DEFAULT_OPACITY
 
+            # 寄送瞬间快照团队标记设置，已受理的邮件不受后续设置变更影响
+            team = project.team
+            marker_enabled = bool(
+                getattr(team, "proofread_marker_enabled", True)
+            )
+            marker_opacity = getattr(team, "proofread_marker_opacity", None)
+            if marker_opacity is None:
+                marker_opacity = DEFAULT_OPACITY
             pending = {
                 "site_name": site_name,
                 "project_name": project.name,
@@ -663,6 +672,8 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
                 "changed_pages": changed_pages,
                 "project_url": project_url,
                 "reply_address": current_user_email,
+                "marker_enabled": marker_enabled,
+                "marker_opacity": marker_opacity,
             }
             payload = {
                 "pending": pending,
@@ -725,9 +736,19 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
             }, 202
 
         # 直发路径没有后台任务，仍同步生成烤图（保持既有行为）
+        from app.services.proofread_image import DEFAULT_OPACITY
+
+        team = project.team
+        marker_enabled = bool(getattr(team, "proofread_marker_enabled", True))
+        marker_opacity = getattr(team, "proofread_marker_opacity", None)
+        if marker_opacity is None:
+            marker_opacity = DEFAULT_OPACITY
         for page in changed_pages:
             page["marked_image_url"] = marked_image_url(
-                File.objects(id=page["file_id"]).first(), page["labels"]
+                File.objects(id=page["file_id"]).first(),
+                page["labels"],
+                enabled=marker_enabled,
+                opacity=marker_opacity,
             )
 
         send_email(
