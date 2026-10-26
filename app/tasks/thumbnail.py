@@ -8,7 +8,7 @@ from datetime import datetime
 from PIL import Image, ImageOps
 
 from app import STORAGE_PATH, celery
-from app.constants.storage import StorageType
+from app.constants.storage import StorageType, requires_local_thumbnail
 from app.exceptions.file import FileNotExistError, SourceFileNotExist
 from app import oss
 from oss2.exceptions import NoSuchKey
@@ -123,14 +123,12 @@ def create_thumbnail_task(self, image_id: str, image_path=None):
     connect_db(config)
     oss.init(config)
 
-    is_local = config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE
-    is_r2 = (
-        config["STORAGE_TYPE"] == StorageType.OSS
-        and config.get("OSS_BUCKET_STYLE") == "R2"
-    )
+    # 走到这里说明不是阿里云（阿里云走服务端图片处理，不需要本任务）。
+    # 用对象存储 = 源图在桶里，得先下载到临时文件才能喂给 Pillow。
+    use_object_storage = config["STORAGE_TYPE"] == StorageType.OSS
 
-    # S3-style OSS uses server-side image processing (x-oss-process)
-    if not is_local and not is_r2:
+    # 阿里云 OSS 用服务端图片处理（x-oss-process），无需本任务
+    if not requires_local_thumbnail(config):
         return f"失败：创建缩略图失败，非本地模式 {image_id}"
     started_at = time.monotonic()
     download_ms = 0
@@ -152,16 +150,15 @@ def create_thumbnail_task(self, image_id: str, image_path=None):
         )
 
         if image_path is None:
-            if is_r2:
+            if use_object_storage:
                 tmp = tempfile.NamedTemporaryFile(delete=False)
                 downloaded_tmp = tmp.name
                 try:
                     image.download_real_file(local_path=tmp.name)
                 except (FileNotExistError, SourceFileNotExist, NoSuchKey):
-                    # R2 (and any S3-compatible) storage reports a missing
-                    # source as NoSuchKey; SourceFileNotExist covers an empty
-                    # save_name.  Both mean "source image is gone", not a
-                    # transient error, so this is terminal, not retryable.
+                    # 标准 S3 兼容存储把「源文件不存在」报成 NoSuchKey；
+                    # SourceFileNotExist 覆盖 save_name 为空的情形。两者都意味着
+                    # 源图真的没了，属于终态，不该重试。
                     _set_thumbnail_state(
                         image,
                         ThumbnailStatus.FAILED,
@@ -217,8 +214,14 @@ def create_thumbnail_task(self, image_id: str, image_path=None):
                 f"{config['OSS_PROCESS_RESAMPLE_NAME']}-{save_name_prefix}.webp"
             )
 
+            # 趁临时文件还在量尺寸：本地存储的落盘是「移动」（os.replace），
+            # 落盘后再量就找不到文件了。
+            derived_bytes = os.path.getsize(temp_cover_path) + os.path.getsize(
+                temp_resample_path
+            )
+
             persist_started_at = time.monotonic()
-            if is_r2:
+            if use_object_storage:
                 with open(temp_cover_path, "rb") as f:
                     oss.upload(oss_file_prefix, cover_name, f)
                 with open(temp_resample_path, "rb") as f:
@@ -237,6 +240,24 @@ def create_thumbnail_task(self, image_id: str, image_path=None):
                     os.path.join(output_dir, resample_name),
                 )
             persist_ms = round((time.monotonic() - persist_started_at) * 1000)
+
+        # 派生图占用记到文件与项目上。按「新值 - 旧值」写，重生成缩略图
+        # 才不会越点越大；项目侧直接打 Project（见 File.apply_derived_bytes）。
+        # 记账是附属功能：查库失败不能把缩略图任务判负，所以整块兜住。
+        try:
+            from app.models.file import File
+
+            document = File.objects(id=image_id).first()
+            if document is not None:
+                previous_derived = document.derived_bytes or 0
+                if derived_bytes != previous_derived:
+                    File.objects(id=document.id).update(
+                        set__derived_bytes=derived_bytes
+                    )
+                    document.apply_derived_bytes(derived_bytes - previous_derived)
+        except Exception:  # pragma: no cover - 记账失败不影响缩略图本身
+            logger.warning("记录派生图占用失败：file=%s", image_id, exc_info=True)
+
         _set_thumbnail_state(
             image, ThumbnailStatus.SUCCEEDED, save_name=fenced_save_name
         )

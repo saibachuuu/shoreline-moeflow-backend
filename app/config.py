@@ -70,8 +70,22 @@ OSS_ACCESS_KEY_ID = env.get("OSS_ACCESS_KEY_ID", "")
 OSS_ACCESS_KEY_SECRET = env.get("OSS_ACCESS_KEY_SECRET", "")
 OSS_ENDPOINT = env.get("OSS_ENDPOINT", "")
 OSS_BUCKET_NAME = env.get("OSS_BUCKET_NAME", "")
-# Bucket 寻址风格: S3（虚拟主机风格，桶名为子域名）或 R2（路径风格，桶名直接拼接在 Endpoint 后）
+# 储存实现风格：S3（标准 S3 兼容协议，boto3）/ ALI（阿里云 OSS 原生，oss2）。
+# 别名：R2 / MINIO / GARAGE / AWS 均归一为 S3；ALIYUN 归一为 ALI。详见 app/constants/storage.py。
+# ⚠️ 注意语义变更：旧版本的 "S3" 实际指阿里云、"R2" 才指标准 S3（是反的）。
+#    阿里云部署必须显式写 ALI，否则启动时会打 ERROR 并按标准 S3 处理（全站 404）。
 OSS_BUCKET_STYLE = env.get("OSS_BUCKET_STYLE", "S3")
+# 对象 key 的总前缀，仅标准 S3（boto3）分支生效；阿里云分支无此前缀。
+# ⚠️ 默认 storage/ 与历史行为一致。改它等于让所有存量对象的 key 对不上，
+#    效果等同一次全量数据迁移，非必要勿动。
+OSS_KEY_PREFIX = env.get("OSS_KEY_PREFIX", "storage/")
+# 标准 S3 客户端参数。R2 用 auto，AWS 需填真实 region（如 us-east-1）。
+OSS_S3_REGION = env.get("OSS_S3_REGION", "auto")
+# path（路径风格，桶名在 URL 路径里）/ virtual（虚拟主机风格，桶名是子域名）。
+# R2、MinIO、Garage 默认都需要 path。
+OSS_S3_ADDRESSING_STYLE = env.get("OSS_S3_ADDRESSING_STYLE", "path")
+# 自建/内网对象存储常用自签证书，此时设为 False。
+OSS_S3_VERIFY_SSL = env.get("OSS_S3_VERIFY_SSL", "True") == "True"
 OSS_PROCESS_COVER_NAME = env.get("OSS_PROCESS_COVER_NAME", "cover")
 OSS_PROCESS_RESAMPLE_NAME = env.get("OSS_PROCESS_RESAMPLE_NAME", "resample")
 # Keep the upload request asynchronous by default.  Set this only for a

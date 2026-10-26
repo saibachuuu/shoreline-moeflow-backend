@@ -6,7 +6,7 @@ from flask_babel import gettext
 from app.constants.file import FileType, ParseStatus
 from app.constants.output import OutputTypes
 from app.constants.project import ProjectStatus
-from app.constants.storage import StorageType
+from app.constants.storage import requires_local_thumbnail
 from app.core.responses import MoePagination
 from app.core.views import MoeAPIView
 from app.decorators.auth import token_required
@@ -365,13 +365,7 @@ class ProjectThumbnailAPI(MoeAPIView):
         """
         if not self.current_user.can(project, ProjectPermission.CHANGE):
             raise NoPermissionError(gettext("您没有此项目的访问权限"))
-        if not (
-            current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE
-            or (
-                current_app.config["STORAGE_TYPE"] == StorageType.OSS
-                and current_app.config.get("OSS_BUCKET_STYLE") == "R2"
-            )
-        ):
+        if not requires_local_thumbnail(current_app.config):
             return {
                 "message": gettext("当前存储模式无需重建缩略图"),
                 "count": 0,
@@ -654,9 +648,7 @@ class ProjectSendProofreadDraftAPI(MoeAPIView):
 
             # 寄送瞬间快照团队标记设置，已受理的邮件不受后续设置变更影响
             team = project.team
-            marker_enabled = bool(
-                getattr(team, "proofread_marker_enabled", True)
-            )
+            marker_enabled = bool(getattr(team, "proofread_marker_enabled", True))
             marker_opacity = getattr(team, "proofread_marker_opacity", None)
             if marker_opacity is None:
                 marker_opacity = DEFAULT_OPACITY

@@ -32,6 +32,20 @@ class FileModelTestCase(MoeTestCase):
         team = Team.create("1")
         self.tmp_project = Project.create("1", team)
 
+    def assertProjectTotal(self, original_kb, project):
+        """项目总量 = 原件合计 + 派生图（缩略图）。
+
+        派生图是这一版才纳入项目占用的，且按文件逐个 KB 四舍五入累加，
+        所以和「原件 + derived_bytes/1024」允许几 KB 的取整误差。
+        """
+
+        project.reload()
+        self.assertAlmostEqual(
+            original_kb + project.derived_bytes / 1024,
+            project.file_size,
+            delta=3,
+        )
+
     def check_sort_name(self, dir_sort_name, sort_name, file):
         """[帮助函数]用于同时检查两个sort_name"""
         self.assertEqual(dir_sort_name, file.dir_sort_name)
@@ -344,7 +358,7 @@ class FileModelTestCase(MoeTestCase):
                 project.reload()
                 self.assertEqual(2, project.file_count)
                 self.assertEqual(2, project.files(type_exclude=FileType.FOLDER).count())
-                self.assertEqual(png2kb_size + png3kb_size, project.file_size)
+                self.assertProjectTotal(png2kb_size + png3kb_size, project)
             # == 不同文件名不会覆盖 ==
             with open(os.path.join(TEST_FILE_PATH, "3kb.png"), "rb") as png3kb_file:
                 project.upload("2.png", png3kb_file)
@@ -353,7 +367,7 @@ class FileModelTestCase(MoeTestCase):
                 project.reload()
                 self.assertEqual(3, project.file_count)
                 self.assertEqual(3, project.files(type_exclude=FileType.FOLDER).count())
-                self.assertEqual(png2kb_size + png3kb_size * 2, project.file_size)
+                self.assertProjectTotal(png2kb_size + png3kb_size * 2, project)
             # == 测试同名文件的覆盖（是否成功替换文件，原文件同时被删除，是否更新文件大小) ==
             # == 测试原文不会被覆盖 ==
             # png2kb的源文件还在oss上
@@ -374,7 +388,7 @@ class FileModelTestCase(MoeTestCase):
                 project.reload()
                 self.assertEqual(3, project.file_count)
                 self.assertEqual(3, project.files(type_exclude=FileType.FOLDER).count())
-                self.assertEqual(png3kb_size * 3, project.file_size)  # size变化了
+                self.assertProjectTotal(png3kb_size * 3, project)  # size变化了
                 self.assertEqual(
                     png3kb_size, png3kb_replace_png2kb.file_size
                 )  # size变化了

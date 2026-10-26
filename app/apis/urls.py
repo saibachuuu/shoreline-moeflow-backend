@@ -24,6 +24,9 @@ from app.apis.me import (
 )
 from app.apis.avatar import AvatarAPI
 from app.apis.site_setting import HomepageAPI, SiteSettingAPI
+
+# 储存配置是核心能力（不属于任何可选模块），概览接口始终注册。
+from app.apis.storage import AdminStorageDefaultAPI
 from app.apis.user import (
     AdminUserAPI,
     AdminUserAdminStatusAPI,
@@ -598,6 +601,11 @@ admin.add_url_rule(
     "/v-codes",
     methods=["GET", "OPTIONS"],
     view_func=AdminVCodeListAPI.as_view("admin_v_code_list"),
+)
+admin.add_url_rule(
+    "/storage/default",
+    methods=["GET", "OPTIONS"],
+    view_func=AdminStorageDefaultAPI.as_view("admin_storage_default"),
 )
 
 if app_config["MIT_STORAGE_ROOT"]:

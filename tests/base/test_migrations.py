@@ -80,11 +80,33 @@ class MigrationRunnerTestCase(MoeTestCase):
         legacy_text_id = db.file.insert_one({"t": 3, "n": "legacy-text"}).inserted_id
 
         self.assertEqual(
-            ["0000", "0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008"],
+            [
+                "0000",
+                "0001",
+                "0002",
+                "0003",
+                "0004",
+                "0005",
+                "0006",
+                "0007",
+                "0008",
+                "0009",
+            ],
             [migration.version for migration in pending(db)],
         )
         self.assertEqual(
-            ["0000", "0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008"],
+            [
+                "0000",
+                "0001",
+                "0002",
+                "0003",
+                "0004",
+                "0005",
+                "0006",
+                "0007",
+                "0008",
+                "0009",
+            ],
             [migration.version for migration in run_pending(db)],
         )
         self.assertEqual([], run_pending(db))
@@ -101,7 +123,9 @@ class MigrationRunnerTestCase(MoeTestCase):
         self.assertTrue(all(item["applied"] for item in status(db)))
         self.assertEqual(
             1,
-            db.identity_migration_report.count_documents({"_id": "identity-v1-summary"}),
+            db.identity_migration_report.count_documents(
+                {"_id": "identity-v1-summary"}
+            ),
         )
 
         # Prove the new backend can read and serialize a document migrated
@@ -210,13 +234,17 @@ class MigrationRunnerTestCase(MoeTestCase):
         external_member = db.project_member.find_one(
             {"project": project_id, "external_id": {"$exists": True}}
         )
-        self.assertEqual(
-            external_member["display_name"], external_member["dns"]
-        )
+        self.assertEqual(external_member["display_name"], external_member["dns"])
         self.assertIn("project_team_set_status_edit_v1", db.project.index_information())
-        self.assertIn("project_member_display_name_search_v1", db.project_member.index_information())
+        self.assertIn(
+            "project_member_display_name_search_v1",
+            db.project_member.index_information(),
+        )
         self.assertEqual(
-            "NORMAL", {0: "NORMAL", 1: "CLEARED", 5: "COMPLETED"}[db.project.find_one({"_id": project_id})["st"]]
+            "NORMAL",
+            {0: "NORMAL", 1: "CLEARED", 5: "COMPLETED"}[
+                db.project.find_one({"_id": project_id})["st"]
+            ],
         )
         self.assertEqual(creator_id, db.project.find_one({"_id": project_id})["ou"])
         self.assertNotIn("w", db.project.find_one({"_id": project_id}))
@@ -231,7 +259,9 @@ class MigrationRunnerTestCase(MoeTestCase):
             ),
         )
         report = db.identity_migration_report.find_one({"_id": f"project:{project_id}"})
-        self.assertTrue(any(item["code"] == "unknown_worker_tag" for item in report["issues"]))
+        self.assertTrue(
+            any(item["code"] == "unknown_worker_tag" for item in report["issues"])
+        )
         relation_report = next(
             item
             for item in db.identity_migration_report.find(
@@ -240,11 +270,14 @@ class MigrationRunnerTestCase(MoeTestCase):
         )
         self.assertEqual("coordinator", relation_report["role"]["system_code"])
         self.assertTrue(
-            any(item["code"] == "legacy_relation_tags" for item in relation_report["issues"])
+            any(
+                item["code"] == "legacy_relation_tags"
+                for item in relation_report["issues"]
+            )
         )
-        summary = db.identity_migration_report.find_one(
-            {"_id": "identity-v1-summary"}
-        )["summary"]
+        summary = db.identity_migration_report.find_one({"_id": "identity-v1-summary"})[
+            "summary"
+        ]
         self.assertEqual(1, summary["external_members"])
         self.assertEqual(2, summary["worker_values"])
         self.assertEqual(1, summary["owner_repaired_count"])
@@ -252,14 +285,21 @@ class MigrationRunnerTestCase(MoeTestCase):
         self.assertEqual(64, len(report["raw_workers_sha256"]))
 
         before = {
-            "project_members": db.project_member.count_documents({"project": project_id}),
+            "project_members": db.project_member.count_documents(
+                {"project": project_id}
+            ),
             "team_members": db.team_member.count_documents({"team": team_id}),
         }
         from app.migrations.versions import m0004_identity_members
 
         m0004_identity_members.up(db)
-        self.assertEqual(before["project_members"], db.project_member.count_documents({"project": project_id}))
-        self.assertEqual(before["team_members"], db.team_member.count_documents({"team": team_id}))
+        self.assertEqual(
+            before["project_members"],
+            db.project_member.count_documents({"project": project_id}),
+        )
+        self.assertEqual(
+            before["team_members"], db.team_member.count_documents({"team": team_id})
+        )
 
     def test_identity_migration_reports_missing_owner_and_blocks_verification(self):
         db = get_db()
@@ -276,10 +316,12 @@ class MigrationRunnerTestCase(MoeTestCase):
         m0004_identity_members.up(db)
 
         report = db.identity_migration_report.find_one({"_id": f"project:{project_id}"})
-        self.assertTrue(any(item["code"] == "owner_missing" for item in report["issues"]))
-        summary = db.identity_migration_report.find_one(
-            {"_id": "identity-v1-summary"}
-        )["summary"]
+        self.assertTrue(
+            any(item["code"] == "owner_missing" for item in report["issues"])
+        )
+        summary = db.identity_migration_report.find_one({"_id": "identity-v1-summary"})[
+            "summary"
+        ]
         self.assertEqual(1, summary["owner_missing_count"])
         self.assertFalse(m0004_identity_members.verify(db))
 
@@ -317,7 +359,11 @@ class MigrationRunnerTestCase(MoeTestCase):
         db.project_role.insert_many(
             [
                 {"_id": creator_role_id, "m_o": "creator", "m_p": ["legacy-owner"]},
-                {"_id": translator_role_id, "m_o": "translator", "m_p": ["legacy-translate"]},
+                {
+                    "_id": translator_role_id,
+                    "m_o": "translator",
+                    "m_p": ["legacy-translate"],
+                },
             ]
         )
         db.team_role.insert_one({"_id": team_creator_role_id, "m_o": "creator"})
@@ -376,10 +422,10 @@ class MigrationRunnerTestCase(MoeTestCase):
                 set(m0004_identity_members.ARTIFACT_FILES),
                 set(manifest["files"]),
             )
+            self.assertEqual("test-artifact-batch", manifest["summary"]["batch_id"])
             self.assertEqual(
-                "test-artifact-batch", manifest["summary"]["batch_id"]
+                project_member_count, db.project_member.count_documents({})
             )
-            self.assertEqual(project_member_count, db.project_member.count_documents({}))
             self.assertEqual(team_member_count, db.team_member.count_documents({}))
 
             for name in (*m0004_identity_members.ARTIFACT_FILES, "manifest.json"):
@@ -402,8 +448,12 @@ class MigrationRunnerTestCase(MoeTestCase):
 
             project_rows = rows["project-members.jsonl"]
             team_rows = rows["team-members.jsonl"]
-            self.assertTrue(all("before" in row and "after" in row for row in project_rows))
-            self.assertTrue(all("before" in row and "after" in row for row in team_rows))
+            self.assertTrue(
+                all("before" in row and "after" in row for row in project_rows)
+            )
+            self.assertTrue(
+                all("before" in row and "after" in row for row in team_rows)
+            )
             self.assertTrue(
                 any(
                     project_relation_id.__str__() in row["source_ids"]
@@ -412,8 +462,7 @@ class MigrationRunnerTestCase(MoeTestCase):
             )
             self.assertTrue(
                 any(
-                    team_relation_id.__str__() in row["source_ids"]
-                    for row in team_rows
+                    team_relation_id.__str__() in row["source_ids"] for row in team_rows
                 )
             )
             self.assertTrue(rows["role-issues.jsonl"])
@@ -429,7 +478,9 @@ class MigrationRunnerTestCase(MoeTestCase):
             self.assertNotIn("password-must-not-be-exported", serialized)
             self.assertNotIn("token", serialized)
 
-    def test_identity_migration_normalizes_planned_statuses_and_cleans_legacy_fields(self):
+    def test_identity_migration_normalizes_planned_statuses_and_cleans_legacy_fields(
+        self,
+    ):
         db = get_db()
         planned_finish_id = ObjectId()
         planned_delete_id = ObjectId()
@@ -487,14 +538,18 @@ class MigrationRunnerTestCase(MoeTestCase):
             {"_id": f"project:{planned_delete_id}"}
         )
         self.assertTrue(
-            any(item["code"] == "legacy_finish_plan" for item in finish_report["issues"])
+            any(
+                item["code"] == "legacy_finish_plan" for item in finish_report["issues"]
+            )
         )
         self.assertTrue(
-            any(item["code"] == "legacy_delete_plan" for item in delete_report["issues"])
+            any(
+                item["code"] == "legacy_delete_plan" for item in delete_report["issues"]
+            )
         )
-        summary = db.identity_migration_report.find_one(
-            {"_id": "identity-v1-summary"}
-        )["summary"]
+        summary = db.identity_migration_report.find_one({"_id": "identity-v1-summary"})[
+            "summary"
+        ]
         self.assertEqual(2, summary["status_plan_count"])
         self.assertEqual(1, summary["workers_projects"])
 
@@ -515,7 +570,12 @@ class MigrationRunnerTestCase(MoeTestCase):
         db.project.insert_many(
             [
                 {"_id": conflict_project, "n": "owner-conflict", "st": 0},
-                {"_id": invalid_project, "n": "owner-invalid", "st": 0, "ou": invalid_owner},
+                {
+                    "_id": invalid_project,
+                    "n": "owner-invalid",
+                    "st": 0,
+                    "ou": invalid_owner,
+                },
             ]
         )
         db.project_role.insert_one({"_id": conflict_role, "m_o": "creator"})
@@ -537,14 +597,20 @@ class MigrationRunnerTestCase(MoeTestCase):
             {"_id": f"project:{invalid_project}"}
         )
         self.assertTrue(
-            any(item["code"] == "owner_candidate_conflict" for item in conflict_report["issues"])
+            any(
+                item["code"] == "owner_candidate_conflict"
+                for item in conflict_report["issues"]
+            )
         )
         self.assertTrue(
-            any(item["code"] == "owner_invalid_user" for item in invalid_report["issues"])
+            any(
+                item["code"] == "owner_invalid_user"
+                for item in invalid_report["issues"]
+            )
         )
-        summary = db.identity_migration_report.find_one(
-            {"_id": "identity-v1-summary"}
-        )["summary"]
+        summary = db.identity_migration_report.find_one({"_id": "identity-v1-summary"})[
+            "summary"
+        ]
         self.assertEqual(1, summary["owner_conflict_count"])
         self.assertEqual(1, summary["owner_invalid_count"])
         self.assertFalse(m0004_identity_members.verify(db))
@@ -649,9 +715,9 @@ class MigrationRunnerTestCase(MoeTestCase):
                 {"scope": "team_relation", "legacy_tags": {"$exists": True}}
             ),
         )
-        summary = db.identity_migration_report.find_one(
-            {"_id": "identity-v1-summary"}
-        )["summary"]
+        summary = db.identity_migration_report.find_one({"_id": "identity-v1-summary"})[
+            "summary"
+        ]
         self.assertEqual(1, summary["project_relation_duplicate_count"])
         self.assertEqual(1, summary["team_relation_duplicate_count"])
 
@@ -659,8 +725,8 @@ class MigrationRunnerTestCase(MoeTestCase):
         db = get_db()
         project_ids = [ObjectId() for _ in range(5)]
         workers_values = [
-            "[\"root-array\"]",
-            "{\"translator\":",
+            '["root-array"]',
+            '{"translator":',
             json.dumps({"translator": "not-an-array"}),
             json.dumps(
                 {
@@ -673,7 +739,9 @@ class MigrationRunnerTestCase(MoeTestCase):
         db.project.insert_many(
             [
                 {"_id": project_id, "n": f"workers-{index}", "st": 0, "w": workers}
-                for index, (project_id, workers) in enumerate(zip(project_ids, workers_values))
+                for index, (project_id, workers) in enumerate(
+                    zip(project_ids, workers_values)
+                )
             ]
         )
 
@@ -699,7 +767,10 @@ class MigrationRunnerTestCase(MoeTestCase):
             {"_id": f"project:{project_ids[3]}"}
         )
         self.assertTrue(
-            any(item["code"] == "unknown_worker_tag" for item in invalid_values_report["issues"])
+            any(
+                item["code"] == "unknown_worker_tag"
+                for item in invalid_values_report["issues"]
+            )
         )
         duplicate_member = db.project_member.find_one(
             {"project": project_ids[4], "display_name": "Bob"}
@@ -707,20 +778,24 @@ class MigrationRunnerTestCase(MoeTestCase):
         self.assertEqual(["proofreader", "translator"], duplicate_member["tags"])
         # Each workers-only project has no creator, so the owner fallback adds
         # the site creator as an extra creator member.
-        self.assertEqual(2, db.project_member.count_documents({"project": project_ids[4]}))
+        self.assertEqual(
+            2, db.project_member.count_documents({"project": project_ids[4]})
+        )
         self.assertEqual(
             2,
             db.project_member.count_documents({"project": project_ids[3]}),
         )
         for project in db.project.find({"_id": {"$in": project_ids}}):
             self.assertNotIn("w", project)
-        summary = db.identity_migration_report.find_one(
-            {"_id": "identity-v1-summary"}
-        )["summary"]
+        summary = db.identity_migration_report.find_one({"_id": "identity-v1-summary"})[
+            "summary"
+        ]
         self.assertEqual(5, summary["workers_projects"])
         self.assertEqual(5, summary["worker_values"])
 
-    def test_identity_migration_projects_all_join_process_states_and_repairs_counts(self):
+    def test_identity_migration_projects_all_join_process_states_and_repairs_counts(
+        self,
+    ):
         db = get_db()
         from app.migrations.versions import m0004_identity_members
 
@@ -780,15 +855,32 @@ class MigrationRunnerTestCase(MoeTestCase):
                 {"_id": translator_role_id, "m_o": "translator", "m_p": []},
             ]
         )
-        db.team_role.insert_one({"_id": team_member_role_id, "m_o": "member", "m_p": []})
+        db.team_role.insert_one(
+            {"_id": team_member_role_id, "m_o": "member", "m_p": []}
+        )
         db.project_user_relation.insert_many(
             [
-                {"_id": object_id(300), "u": creator_id, "g": project_id, "r": creator_role_id},
-                {"_id": direct_id, "u": user_ids[6], "g": project_id, "r": translator_role_id},
+                {
+                    "_id": object_id(300),
+                    "u": creator_id,
+                    "g": project_id,
+                    "r": creator_role_id,
+                },
+                {
+                    "_id": direct_id,
+                    "u": user_ids[6],
+                    "g": project_id,
+                    "r": translator_role_id,
+                },
             ]
         )
         db.team_user_relation.insert_one(
-            {"_id": object_id(301), "u": creator_id, "g": team_id, "r": team_member_role_id}
+            {
+                "_id": object_id(301),
+                "u": creator_id,
+                "g": team_id,
+                "r": team_member_role_id,
+            }
         )
         event_time = datetime.datetime(2024, 1, 1)
         db.invitation.insert_many(
@@ -833,7 +925,12 @@ class MigrationRunnerTestCase(MoeTestCase):
         )
         db.application.insert_many(
             [
-                {"_id": application_pending_id, "u": user_ids[4], "g": project_id, "s": 1},
+                {
+                    "_id": application_pending_id,
+                    "u": user_ids[4],
+                    "g": project_id,
+                    "s": 1,
+                },
                 {
                     "_id": application_allowed_id,
                     "u": user_ids[5],
@@ -843,7 +940,12 @@ class MigrationRunnerTestCase(MoeTestCase):
                     # timestamp but do retain an edit timestamp.
                     "m_e": event_time + datetime.timedelta(days=3),
                 },
-                {"_id": application_denied_id, "u": user_ids[9], "g": project_id, "s": 3},
+                {
+                    "_id": application_denied_id,
+                    "u": user_ids[9],
+                    "g": project_id,
+                    "s": 3,
+                },
                 {"_id": team_application_id, "u": user_ids[8], "g": team_id, "s": 1},
             ]
         )
@@ -855,7 +957,15 @@ class MigrationRunnerTestCase(MoeTestCase):
             for member in db.project_member.find({"project": project_id})
         }
         self.assertEqual(
-            {creator_id, user_ids[1], user_ids[2], user_ids[3], user_ids[5], user_ids[6], user_ids[9]},
+            {
+                creator_id,
+                user_ids[1],
+                user_ids[2],
+                user_ids[3],
+                user_ids[5],
+                user_ids[6],
+                user_ids[9],
+            },
             set(members),
         )
         self.assertEqual("invited", members[user_ids[1]]["status"])
@@ -872,24 +982,59 @@ class MigrationRunnerTestCase(MoeTestCase):
         self.assertEqual(["creator"], members[creator_id]["tags"])
         self.assertEqual(["translator"], members[user_ids[6]]["tags"])
         self.assertEqual(4, db.project.find_one({"_id": project_id})["m_uc"])
-        self.assertEqual(4, db.project_member.count_documents({"project": project_id, "status": "active"}))
-        self.assertEqual(1, db.team_member.count_documents({"team": team_id, "status": "active"}))
+        self.assertEqual(
+            4,
+            db.project_member.count_documents(
+                {"project": project_id, "status": "active"}
+            ),
+        )
+        self.assertEqual(
+            1, db.team_member.count_documents({"team": team_id, "status": "active"})
+        )
         self.assertEqual(1, db.team.find_one({"_id": team_id})["m_uc"])
         self.assertEqual(creator_id, db.project.find_one({"_id": project_id})["ou"])
 
         def report(scope, source_id):
-            return db.identity_migration_report.find_one({"_id": f"{scope}:{source_id}"})
+            return db.identity_migration_report.find_one(
+                {"_id": f"{scope}:{source_id}"}
+            )
 
-        self.assertEqual("project_member_invited", report("invitation", invitation_pending_id)["projection"])
-        self.assertEqual("project_member_active", report("invitation", invitation_allowed_id)["projection"])
-        self.assertEqual("project_member_removed", report("invitation", invitation_denied_id)["projection"])
-        self.assertEqual("pending_application_no_member", report("application", application_pending_id)["projection"])
-        self.assertEqual("project_member_active", report("application", application_allowed_id)["projection"])
-        self.assertEqual("project_member_removed", report("application", application_denied_id)["projection"])
-        self.assertEqual("team_scope_no_project_member", report("invitation", team_invitation_id)["projection"])
-        self.assertEqual("team_scope_no_project_member", report("application", team_application_id)["projection"])
+        self.assertEqual(
+            "project_member_invited",
+            report("invitation", invitation_pending_id)["projection"],
+        )
+        self.assertEqual(
+            "project_member_active",
+            report("invitation", invitation_allowed_id)["projection"],
+        )
+        self.assertEqual(
+            "project_member_removed",
+            report("invitation", invitation_denied_id)["projection"],
+        )
+        self.assertEqual(
+            "pending_application_no_member",
+            report("application", application_pending_id)["projection"],
+        )
+        self.assertEqual(
+            "project_member_active",
+            report("application", application_allowed_id)["projection"],
+        )
+        self.assertEqual(
+            "project_member_removed",
+            report("application", application_denied_id)["projection"],
+        )
+        self.assertEqual(
+            "team_scope_no_project_member",
+            report("invitation", team_invitation_id)["projection"],
+        )
+        self.assertEqual(
+            "team_scope_no_project_member",
+            report("application", team_application_id)["projection"],
+        )
 
-        summary = db.identity_migration_report.find_one({"_id": "identity-v1-summary"})["summary"]
+        summary = db.identity_migration_report.find_one({"_id": "identity-v1-summary"})[
+            "summary"
+        ]
         self.assertEqual(4, summary["invitation_count"])
         self.assertEqual(4, summary["application_count"])
         self.assertEqual(1, summary["pending_invitation_count"])
@@ -922,7 +1067,11 @@ class MigrationRunnerTestCase(MoeTestCase):
             [
                 {"_id": creator_id, "n": "team-creator", "e": "creator@example.com"},
                 {"_id": invited_user, "n": "invited-user", "e": "invited@example.com"},
-                {"_id": applicant_user, "n": "applicant-user", "e": "applicant@example.com"},
+                {
+                    "_id": applicant_user,
+                    "n": "applicant-user",
+                    "e": "applicant@example.com",
+                },
             ]
         )
         db.team.insert_one({"_id": team_id, "n": "generic-ref-team", "m_uc": 1})
@@ -980,7 +1129,9 @@ class MigrationRunnerTestCase(MoeTestCase):
         application_report = db.identity_migration_report.find_one(
             {"_id": f"application:{application_id}"}
         )
-        self.assertEqual("pending_application_no_member", application_report["projection"])
+        self.assertEqual(
+            "pending_application_no_member", application_report["projection"]
+        )
         project_report = db.identity_migration_report.find_one(
             {"_id": f"project:{project_id}"}
         )
@@ -990,9 +1141,9 @@ class MigrationRunnerTestCase(MoeTestCase):
                 for item in project_report["issues"]
             )
         )
-        summary = db.identity_migration_report.find_one(
-            {"_id": "identity-v1-summary"}
-        )["summary"]
+        summary = db.identity_migration_report.find_one({"_id": "identity-v1-summary"})[
+            "summary"
+        ]
         self.assertEqual(0, summary["owner_issue_count"])
         self.assertEqual(1, summary["owner_repaired_count"])
         self.assertEqual(1, summary["allowed_invitation_count"])
@@ -1032,9 +1183,7 @@ class MigrationRunnerTestCase(MoeTestCase):
 
         project = db.project.find_one({"_id": project_id})
         self.assertEqual(site_creator_id, project["ou"])
-        member = db.project_member.find_one(
-            {"ik": f"{project_id}:u:{site_creator_id}"}
-        )
+        member = db.project_member.find_one({"ik": f"{project_id}:u:{site_creator_id}"})
         self.assertEqual(["creator"], sorted(member["tags"]))
         project_report = db.identity_migration_report.find_one(
             {"_id": f"project:{project_id}"}
@@ -1045,9 +1194,9 @@ class MigrationRunnerTestCase(MoeTestCase):
                 for item in project_report["issues"]
             )
         )
-        summary = db.identity_migration_report.find_one(
-            {"_id": "identity-v1-summary"}
-        )["summary"]
+        summary = db.identity_migration_report.find_one({"_id": "identity-v1-summary"})[
+            "summary"
+        ]
         self.assertEqual(0, summary["owner_issue_count"])
         self.assertEqual(1, summary["owner_repaired_count"])
         from app.migrations.versions import m0004_identity_members
@@ -1089,7 +1238,9 @@ class MigrationRunnerTestCase(MoeTestCase):
         db.migration_record.insert_one(
             {
                 "v": "0002",
-                "c": hashlib.sha256(inspect.getsource(module).encode("utf-8")).hexdigest(),
+                "c": hashlib.sha256(
+                    inspect.getsource(module).encode("utf-8")
+                ).hexdigest(),
             }
         )
         self.assertTrue(all(item["version"] for item in status(db)))
@@ -1116,7 +1267,18 @@ class MigrationRunnerTestCase(MoeTestCase):
 
         # 迁移确实没有被执行，门禁才有意义。
         self.assertEqual(
-            ["0000", "0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008"],
+            [
+                "0000",
+                "0001",
+                "0002",
+                "0003",
+                "0004",
+                "0005",
+                "0006",
+                "0007",
+                "0008",
+                "0009",
+            ],
             [migration.version for migration in pending(db)],
         )
 
@@ -1149,13 +1311,20 @@ class MigrationRunnerTestCase(MoeTestCase):
         module = discover()[0].module
         self.assertLess(module.VERSION, "0004")
         with patch("app.migrations.runner.logger") as logger_mock:
-            accepted = _checksum_matches(module, "legacy-record-checksum", module.VERSION)
+            accepted = _checksum_matches(
+                module, "legacy-record-checksum", module.VERSION
+            )
         self.assertTrue(accepted)
         logger_mock.warning.assert_called_once()
 
     def test_lock_lease_loss_raises_instead_of_letting_two_runners_continue(self):
         """租约丢失后继续跑等于和接管的 runner 并发执行同一批 up()。"""
-        from app.migrations.runner import LOCK_LEASE, MigrationError, _acquire_lock, _renew_lock
+        from app.migrations.runner import (
+            LOCK_LEASE,
+            MigrationError,
+            _acquire_lock,
+            _renew_lock,
+        )
 
         db = get_db()
         self.assertTrue(_acquire_lock(db, "lease-holder-a", LOCK_LEASE))
@@ -1220,7 +1389,5 @@ class MigrationRunnerTestCase(MoeTestCase):
             {"_id": project.id}, {"$set": {"m_uc": original_count + 1}}
         )
         self.assertFalse(m0004.verify(db))
-        db.project.update_one(
-            {"_id": project.id}, {"$set": {"m_uc": original_count}}
-        )
+        db.project.update_one({"_id": project.id}, {"$set": {"m_uc": original_count}})
         self.assertTrue(m0004.verify(db))

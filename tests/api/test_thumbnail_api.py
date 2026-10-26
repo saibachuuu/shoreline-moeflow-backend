@@ -67,9 +67,10 @@ class FileThumbnailAPITestCase(MoeAPITestCase):
     def test_single_thumbnail_is_noop_for_oss_storage(self, create_thumbnail):
         _, image, _, creator, _, _ = self.create_project_with_image()
         self.app.config["STORAGE_TYPE"] = StorageType.OSS
-        # 非 R2 的 OSS 由图片处理规则生成缩略图。宿主环境可能带着 R2 开发
-        # 容器的 OSS_BUCKET_STYLE=R2，显式钉住才能稳定落在 no-op 分支。
-        self.app.config["OSS_BUCKET_STYLE"] = ""
+        # 只有阿里云 OSS 用服务端图片处理（x-oss-process）生成缩略图，才走 no-op 分支。
+        # 注意语义变更：本版里空值 / "S3" 都归一为标准 S3（缩略图要我们自己生成），
+        # 必须显式写 ALI 才能稳定落在 no-op 分支。
+        self.app.config["OSS_BUCKET_STYLE"] = "ALI"
 
         response = self.post(
             f"/v1/files/{image.id}/thumbnail",

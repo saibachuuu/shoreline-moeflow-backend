@@ -14,7 +14,7 @@ from app.exceptions import (
 from app.models.file import File, FileTargetCache
 from app.models.project import Project, ProjectPermission
 from app.models.team import TeamPermission
-from app.constants.storage import StorageType
+from app.constants.storage import requires_local_thumbnail
 from app.constants.project import ProjectStatus
 from app.constants.file import FileType
 from app.validators.file import (
@@ -339,8 +339,19 @@ class AdminFileListAPI(MoeAPIView):
     @admin_required
     def get(self):
         p = MoePagination()
-        files = File.objects().skip(p.skip).limit(p.limit).order_by("-edit_time")
-        return p.set_objects(files)
+        # 全局文件列表跨项目，序列化时每行都要解析「原图在哪个后端」——
+        # 不预取 project 就是一次典型的 N+1（文件数 × 1 次查询）。
+        # 注意：mongoengine 的 select_related() **会把查询求值并返回 list**，
+        # 所以这里不能再交给 set_objects（它要的是带 .count() 的 QuerySet）。
+        total = File.objects().count()
+        files = list(
+            File.objects()
+            .skip(p.skip)
+            .limit(p.limit)
+            .order_by("-edit_time")
+            .select_related(max_depth=1)
+        )
+        return p.set_data(data=[file.to_api() for file in files], count=total)
 
 
 class FileThumbnailAPI(MoeAPIView):
@@ -364,13 +375,7 @@ class FileThumbnailAPI(MoeAPIView):
             raise NoPermissionError(gettext("您没有此项目的访问权限"))
         if file.type != FileType.IMAGE:
             raise FileTypeNotSupportError(gettext("仅图片文件可生成缩略图"))
-        if not (
-            current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE
-            or (
-                current_app.config["STORAGE_TYPE"] == StorageType.OSS
-                and current_app.config.get("OSS_BUCKET_STYLE") == "R2"
-            )
-        ):
+        if not requires_local_thumbnail(current_app.config):
             return {"message": gettext("当前存储模式无需重建缩略图"), "count": 0}
 
         from app.tasks.thumbnail import create_thumbnail

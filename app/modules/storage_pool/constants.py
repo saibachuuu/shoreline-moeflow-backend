@@ -1,0 +1,92 @@
+"""存储池的状态与方向常量。
+
+状态顺序即安全性：**切指针在删源之前**，任何一步失败都停在上一步，
+不会出现「两边都读不到」的窗口。
+"""
+
+from app.constants.base import IntType, StrType
+
+
+class TransferStatus(IntType):
+    """迁移任务状态。"""
+
+    PENDING = 0  # 已排定，等 worker 取
+    COPYING = 1  # 正在逐对象搬运
+    VERIFIED = 2  # 已逐个校验（size / etag）
+    SWITCHED = 3  # 指针已切换（★ 从这里开始读的是新位置）
+    DONE = 4  # 源端已清理
+    FAILED = 5  # 出错，可重试
+    ABORTED = 6  # 并发写入等原因主动中止，可重试
+
+    details = {
+        "PENDING": {"name": "待执行"},
+        "COPYING": {"name": "搬运中"},
+        "VERIFIED": {"name": "已校验"},
+        "SWITCHED": {"name": "已切换"},
+        "DONE": {"name": "已完成"},
+        "FAILED": {"name": "失败"},
+        "ABORTED": {"name": "已中止"},
+    }
+
+    #: 还占着「这个项目正在迁移」这个坑的状态。
+    ACTIVE = (PENDING, COPYING, VERIFIED, SWITCHED)
+
+    #: 可以重试的状态。
+    RETRYABLE = (FAILED, ABORTED)
+
+
+class TransferDirection(IntType):
+    """迁移方向。"""
+
+    IN = 0  # 默认存储 → 池来源
+    OUT = 1  # 池来源 → 默认存储（回迁）
+
+    details = {
+        "IN": {"name": "迁入存储池"},
+        "OUT": {"name": "回迁到默认存储"},
+    }
+
+
+class TransferObjectStatus(IntType):
+    """单个对象的搬运状态（断点续传靠它）。"""
+
+    PENDING = 0
+    COPIED = 1
+    VERIFIED = 2
+    SOURCE_DELETED = 3
+    FAILED = 4
+
+    details = {
+        "PENDING": {"name": "待搬运"},
+        "COPIED": {"name": "已复制"},
+        "VERIFIED": {"name": "已校验"},
+        "SOURCE_DELETED": {"name": "源端已删"},
+        "FAILED": {"name": "失败"},
+    }
+
+
+class StorageObjectKind(StrType):
+    """参与迁移的对象种类。
+
+    只搬这两类：原图与导出产物。派生图（cover/resample/proofread）永远留在
+    默认存储，文本原文与头像也不搬。
+    """
+
+    ORIGINAL = "original"
+    OUTPUT = "output"
+
+    details = {
+        "ORIGINAL": {"name": "原图"},
+        "OUTPUT": {"name": "导出产物"},
+    }
+
+
+#: 连通性测试写入的探针对象名（测完即删）。
+PROBE_OBJECT_NAME = ".moeflow-storage-probe"
+
+#: 连续多少轮「一个对象都没搬成、但还有剩余」就判死。
+#: 没有这道闸，自动续跑会在桶不可用时无休止地空转。
+MAX_STALLS = 3
+
+#: 自动续跑的延迟（秒）。给上一轮的状态写入留出可见性时间。
+CONTINUE_COUNTDOWN = 30

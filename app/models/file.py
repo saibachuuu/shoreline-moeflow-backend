@@ -28,7 +28,8 @@ from mongoengine import (
 )
 
 from app import oss
-from app.constants.storage import StorageType
+from app.constants.storage import StorageType, requires_local_thumbnail
+from app.services import storage_router
 from app.core.responses import MoePagination
 from app.decorators.file import need_activated, only, only_file
 from app.exceptions import (
@@ -218,6 +219,10 @@ class File(Document):
 
     # 文件大小，单位KB，需要使用inc_cache更新
     file_size = LongField(db_field="fs", default=0)
+    # 派生图（cover/resample 两个 webp）的合计占用，单位 bytes，精确值。
+    # 由 thumbnail 任务按「新值 - 旧值」写入；不参与 inc_cache —— 派生图不是
+    # 原件，混进 file_size 会让上传时的 file_size-old_file_size 差值算错。
+    derived_bytes = LongField(db_field="dvb", default=0)
     file_not_exist_reason = IntField(
         db_field="fn", default=FileNotExistReason.UNKNOWN
     )  # 源文件不存在的原因
@@ -414,6 +419,11 @@ class File(Document):
             self.file_size - old_activated_revision.file_size,
             update_self=False,
         )
+        # 派生图跟着激活版走：项目账 = 新激活版 - 旧激活版。旧版的缩略图
+        # 不会被删（重新激活时还能直接用），但它不再计入项目占用。
+        self.apply_derived_bytes(
+            (self.derived_bytes or 0) - (old_activated_revision.derived_bytes or 0)
+        )
         self.update_cache("edit_time", datetime.datetime.utcnow())
         # 更新项目翻译计数缓存
         for target in self.project.targets():
@@ -608,6 +618,26 @@ class File(Document):
             return old_cache
         return FileTargetCache(file=self, target=target).save()
 
+    def apply_derived_bytes(self, delta: int):
+        """把派生图（缩略图）占用的变化写到项目账上。
+
+        必须直接打 ``Project``，不能走 ``inc_cache``：后者会把缩略图算进
+        ``File.file_size``，让「文件大小」不再等于原图大小，上传时
+        ``file_size - old_file_size`` 的差值随之算错；而且它还会再滚一次
+        项目，等于重复计数。
+
+        ``delta`` 是 bytes。项目 ``file_size`` 是 KB，顺手同步一个四舍五入
+        的增量，保证 ``file_size*1024 ≈ 原件 + derived_bytes + output_bytes``。
+        """
+        if not delta:
+            return
+        from app.models.project import Project
+
+        Project.objects(id=self.project.id).update(
+            inc__derived_bytes=delta,
+            inc__file_size=round(delta / 1024),
+        )
+
     @need_activated
     def inc_cache(
         self,
@@ -678,10 +708,29 @@ class File(Document):
             self.project.update_cache(cache_name, value)
 
     @property
+    def storage_backend(self):
+        """原图所在的后端：默认存储，或本项目指向的存储来源。
+
+        注册表为空（存储池模块未安装/未启用）时**直接返回全局 oss**，
+        连项目 id 都不读 —— 否则每次序列化都要为这一行多查一次项目，
+        而那时候这个查询毫无意义。
+
+        有注册表时也只取 ``project`` 这道引用的 id，不去解引用整个项目文档；
+        同一页文件属于同一项目，解析结果在请求级被缓存，因此不会退化成 N+1。
+        """
+        if not storage_router.has_resolvers():
+            return oss
+        project_ref = self._data.get("project") if self._data else None
+        backend = storage_router.backend_for_id(project_ref)
+        return backend or oss
+
+    @property
     def url(self):
         if not self.save_name:
             return ""
-        return oss.sign_url(current_app.config["OSS_FILE_PREFIX"], self.save_name)
+        return self.storage_backend.sign_url(
+            current_app.config["OSS_FILE_PREFIX"], self.save_name
+        )
 
     @property
     def cover_url(self):
@@ -694,12 +743,15 @@ class File(Document):
         )
 
     def _processed_image_url(self, process_name):
+        # ⚠️ 派生图（cover/resample）**永远在默认存储**，因此这里显式用全局
+        # ``oss`` 而不是 ``self.storage_backend``。项目搬进存储池时只搬原图，
+        # 派生图留在原地；误路由会让所有缩略图 404。
         if not self.save_name:
             return ""
 
         file_prefix = current_app.config["OSS_FILE_PREFIX"]
         if current_app.config["STORAGE_TYPE"] == StorageType.OSS:
-            if current_app.config.get("OSS_BUCKET_STYLE") == "R2":
+            if requires_local_thumbnail(current_app.config):
                 save_name_prefix = self.save_name.rsplit(".", 1)[0]
                 processed_name = f"{process_name}-{save_name_prefix}.webp"
                 if self.thumbnail_status == ThumbnailStatus.SUCCEEDED:
@@ -708,7 +760,7 @@ class File(Document):
                 # always signing.
                 if self.thumbnail_status == ThumbnailStatus.UNKNOWN:
                     return oss.sign_url(file_prefix, processed_name)
-                # The R2 probe is a single head_object per row, the same cost
+                # This probe is a single head_object per row, the same cost
                 # as the LOCAL fallback below.  Status alone must not decide:
                 # a worker killed mid-task (OOM, redeploy) leaves the document
                 # at GENERATING forever with no redelivery -- Celery acks
@@ -743,10 +795,10 @@ class File(Document):
     @only_file
     def download_real_file(self, local_path=None):
         """下载源文件"""
-        # 从oss获取源文件
+        # 从原图所在的后端取（默认存储，或项目指向的存储来源）
         if not self.save_name:
             raise SourceFileNotExist(self.file_not_exist_reason)
-        return oss.download(
+        return self.storage_backend.download(
             current_app.config["OSS_FILE_PREFIX"], self.save_name, local_path=local_path
         )
 
@@ -778,9 +830,14 @@ class File(Document):
             shutil.copyfileobj(real_file, temp_file)
         staged_at = time.monotonic()
 
+        # 上传与删除都指向同一个后端快照：这一趟里项目指针不会被改，
+        # 但下面要连着用两次，取值一次更清楚。
+        backend = self.storage_backend
+
         try:
             with open(temp_file_path, "rb") as upload_file:
-                oss_result = oss.upload(
+                # 与读取同源：写进项目当前指向的那个后端，避免读写分叉。
+                oss_result = backend.upload(
                     current_app.config["OSS_FILE_PREFIX"], save_name, upload_file
                 )
             uploaded_at = time.monotonic()
@@ -801,9 +858,8 @@ class File(Document):
             self.md5 = md5
             self.file_not_exist_reason = FileNotExistReason.UNKNOWN
 
-            if self.type == FileType.IMAGE and (
-                current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE
-                or current_app.config.get("OSS_BUCKET_STYLE") == "R2"
+            if self.type == FileType.IMAGE and requires_local_thumbnail(
+                current_app.config
             ):
                 # Thumbnail generation is CPU-heavy.  Do not make the upload
                 # request wait for Pillow; the task reads the stored original.
@@ -829,26 +885,8 @@ class File(Document):
                         )
 
             if old_save_name:
-                filenames = [old_save_name]
-                if current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE or (
-                    current_app.config["STORAGE_TYPE"] == StorageType.OSS
-                    and current_app.config.get("OSS_BUCKET_STYLE") == "R2"
-                ):
-                    old_name_prefix = old_save_name.rsplit(".", 1)[0]
-                    filenames.extend(
-                        [
-                            current_app.config["OSS_PROCESS_COVER_NAME"]
-                            + "-"
-                            + old_name_prefix
-                            + ".webp",
-                            current_app.config["OSS_PROCESS_RESAMPLE_NAME"]
-                            + "-"
-                            + old_name_prefix
-                            + ".webp",
-                        ]
-                    )
                 try:
-                    oss.delete(current_app.config["OSS_FILE_PREFIX"], filenames)
+                    self._delete_stored_objects([old_save_name])
                 except Exception:
                     # The replacement is already visible.  Retaining an old
                     # object is preferable to failing or reverting the upload.
@@ -880,6 +918,39 @@ class File(Document):
         )
         return oss_result
 
+    def _delete_stored_objects(self, save_names):
+        """删除原图与它的派生图。
+
+        **原图可能在存储池里，派生图一定在默认存储** —— 所以不能一次 batch 删完：
+        原图交给 ``storage_backend``，派生图交给全局 ``oss``。
+        后端就是默认存储时仍然合成一次调用，省一次往返。
+        """
+        file_prefix = current_app.config["OSS_FILE_PREFIX"]
+        save_names = list(save_names)
+        derived = []
+        if requires_local_thumbnail(current_app.config):
+            for save_name in save_names:
+                stem = save_name.rsplit(".", 1)[0]
+                derived.extend(
+                    [
+                        current_app.config["OSS_PROCESS_COVER_NAME"]
+                        + "-"
+                        + stem
+                        + ".webp",
+                        current_app.config["OSS_PROCESS_RESAMPLE_NAME"]
+                        + "-"
+                        + stem
+                        + ".webp",
+                    ]
+                )
+        backend = self.storage_backend
+        if backend is oss:
+            return oss.delete(file_prefix, save_names + derived)
+        result = backend.delete(file_prefix, save_names)
+        if derived:
+            oss.delete(file_prefix, derived)
+        return result
+
     @only_file
     def delete_real_file(
         self,
@@ -897,33 +968,15 @@ class File(Document):
         """
         # 如果是文件夹则跳过
         if self.has_real_file:
-            filenames = [self.save_name]
-            if current_app.config["STORAGE_TYPE"] == StorageType.LOCAL_STORAGE or (
-                current_app.config["STORAGE_TYPE"] == StorageType.OSS
-                and current_app.config.get("OSS_BUCKET_STYLE") == "R2"
-            ):
-                save_name_prefix = self.save_name.rsplit(".", 1)[0]
-                filenames.extend(
-                    [
-                        current_app.config["OSS_PROCESS_COVER_NAME"]
-                        + "-"
-                        + save_name_prefix
-                        + ".webp",
-                        current_app.config["OSS_PROCESS_RESAMPLE_NAME"]
-                        + "-"
-                        + save_name_prefix
-                        + ".webp",
-                    ]
-                )
-            oss_result = oss.delete(
-                current_app.config["OSS_FILE_PREFIX"],
-                filenames,
-            )
+            oss_result = self._delete_stored_objects([self.save_name])
             # 初始化对象，并更新缓存计数
             if init_obj:
+                # 先记下派生图占用：下面 update 会把它清零，但项目账要用旧值回退。
+                derived_bytes = self.derived_bytes or 0
                 self.update(
                     save_name="",
                     md5="",
+                    derived_bytes=0,
                     file_not_exist_reason=file_not_exist_reason,
                 )
                 # 更新缓存数据
@@ -931,6 +984,9 @@ class File(Document):
                     # 非激活修订版只更新自身文件大小
                     if self.activated:
                         self.inc_cache("file_size", -self.file_size)
+                        # 派生图跟着原图一起被删掉了（_delete_stored_objects），
+                        # 项目账里的 derived_bytes 也要同步退回。
+                        self.apply_derived_bytes(-derived_bytes)
                     else:
                         self.update(file_size=0)
                     self.update_cache("edit_time", datetime.datetime.utcnow())
@@ -1321,6 +1377,8 @@ class File(Document):
             "manual_order": self.manual_order,
             "save_name": self.save_name,
             "type": self.type,
+            # 单位 KB（取整）。前端做容量徽标时 ×1024 当近似字节用，展示带「≈」。
+            "file_size": self.file_size,
             "source_count": self.source_count,
             "translated_source_count": self.translated_source_count,
             "checked_source_count": self.checked_source_count,

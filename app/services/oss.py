@@ -1,5 +1,12 @@
 """
-对接阿里云OSS储存服务 / Cloudflare R2 (S3 兼容) 储存服务
+对接对象储存服务。
+
+两种实现，由 ``OSS_BUCKET_STYLE`` 归一后决定（见 ``app.constants.storage``）：
+
+* ``BucketStyle.S3``  标准 S3 兼容协议，走 boto3 —— AWS S3 / Cloudflare R2 /
+  MinIO / Garage / 自建网关。对象 key 统一带 ``OSS_KEY_PREFIX`` 总前缀。
+* ``BucketStyle.ALI`` 阿里云 OSS 原生 SDK（oss2），额外拥有服务端图片处理
+  与 CDN URL 鉴权，因此缩略图不需要本程序生成。无总前缀（历史行为）。
 """
 
 from io import BufferedReader, BytesIO, FileIO
@@ -17,11 +24,38 @@ from oss2 import to_string
 from oss2.exceptions import NoSuchKey
 
 import boto3
+from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
-from app.constants.storage import StorageType
+from app.constants.storage import (
+    BucketStyle,
+    StorageType,
+    parse_bucket_style,
+    report_bucket_style_issues,
+)
 
 logger = logging.getLogger(__name__)
+
+# S3 返回「对象不存在」时的错误码集合。
+_S3_NOT_FOUND_CODES = {"404", "NoSuchKey", "NotFound"}
+
+
+def _is_not_found(error: ClientError) -> bool:
+    """判断 boto3 异常是否表示对象不存在（不同实现回的 code 不一样）。"""
+    code = str(
+        (getattr(error, "response", None) or {}).get("Error", {}).get("Code", "")
+    )
+    return code in _S3_NOT_FOUND_CODES
+
+
+def _strip_etag(etag):
+    """去掉 ETag 两侧的引号，让各实现返回的形状一致；None 透传。"""
+    if not etag:
+        return etag
+    if isinstance(etag, bytes):
+        etag = etag.decode("utf-8", "replace")
+    return etag.strip('"')
+
 
 # HTTP 头部到 boto3 put_object 参数的映射
 _BOTO3_HEADER_MAP = {
@@ -93,31 +127,52 @@ class OSS:
             self.init(config)
         else:
             self.storage_type = None
-            self.oss_bucket_style = None
+            self.bucket_style = None
+            self.capabilities = None
             self.auth = None
             self.bucket = None
             self.client = None
             self.bucket_name = None
-            self.oss_key_prefix = None
+            self.oss_key_prefix = ""
             self.oss_domain = None
             self.oss_via_cdn = None
             self.cdn_url_key = None
 
     def init(self, config):
-        """配置初始化"""
+        """配置初始化。每个进程调用一次即可（切换配置后必须重新调用）。"""
         self.storage_type = config["STORAGE_TYPE"]
-        self.oss_bucket_style = config.get("OSS_BUCKET_STYLE", "S3")
+        # 归一：R2/MINIO/GARAGE/AWS → S3，ALIYUN → ALI。顺带对危险配置打日志。
+        _style = parse_bucket_style(
+            config.get("OSS_BUCKET_STYLE"), config.get("OSS_ENDPOINT")
+        )
+        report_bucket_style_issues(_style)
+        self.bucket_style = _style.style
+        self.capabilities = _style.capabilities
+        # 阿里云分支无总前缀（历史行为，不能动）。
+        self.oss_key_prefix = config.get("OSS_KEY_PREFIX", "storage/") or ""
+        self.bucket_name = config.get("OSS_BUCKET_NAME", "")
+
         if self.storage_type == StorageType.OSS:
-            if self.oss_bucket_style == "R2":
+            if self.bucket_style == BucketStyle.S3:
                 self.client = boto3.client(
                     "s3",
                     endpoint_url=config["OSS_ENDPOINT"],
                     aws_access_key_id=config["OSS_ACCESS_KEY_ID"],
                     aws_secret_access_key=config["OSS_ACCESS_KEY_SECRET"],
+                    region_name=config.get("OSS_S3_REGION") or "auto",
+                    config=BotoConfig(
+                        signature_version="s3v4",
+                        s3={
+                            "addressing_style": config.get("OSS_S3_ADDRESSING_STYLE")
+                            or "path"
+                        },
+                        retries={"max_attempts": 3, "mode": "standard"},
+                    ),
+                    verify=config.get("OSS_S3_VERIFY_SSL", True),
                 )
-                self.bucket_name = config["OSS_BUCKET_NAME"]
-                self.oss_key_prefix = "storage/"
             else:
+                # 阿里云分支没有总前缀。
+                self.oss_key_prefix = ""
                 self.auth = oss2.Auth(
                     config["OSS_ACCESS_KEY_ID"],
                     config["OSS_ACCESS_KEY_SECRET"],
@@ -134,8 +189,21 @@ class OSS:
         else:
             from app import STORAGE_PATH
 
+            self.oss_key_prefix = ""
             self.oss_domain = config["STORAGE_DOMAIN"]
             self.STORAGE_PATH = STORAGE_PATH
+
+    # ------------------------------------------------------------------
+    # key 换算：内部工作空间是「相对 key」（不含总前缀），即 path + filename。
+    # 总前缀只在真正发请求时加、返回时剥掉，调用方不必关心。
+    # ------------------------------------------------------------------
+    def _to_object_key(self, key: str) -> str:
+        return self.oss_key_prefix + key
+
+    def _from_object_key(self, object_key: str) -> str:
+        if self.oss_key_prefix and object_key.startswith(self.oss_key_prefix):
+            return object_key[len(self.oss_key_prefix) :]
+        return object_key
 
     def upload(
         self,
@@ -147,8 +215,8 @@ class OSS:
     ):
         """上传文件"""
         if self.storage_type == StorageType.OSS:
-            if self.oss_bucket_style == "R2":
-                key = self.oss_key_prefix + path + filename
+            if self.bucket_style == BucketStyle.S3:
+                key = self._to_object_key(path + filename)
                 extra_kwargs = _boto3_put_kwargs_from_headers(headers)
                 if hasattr(file, "read"):
                     # upload_fileobj performs multipart streaming for large
@@ -189,13 +257,13 @@ class OSS:
     def download(self, path, filename: str, /, *, local_path=None):
         """下载文件"""
         if self.storage_type == StorageType.OSS:
-            if self.oss_bucket_style == "R2":
-                key = self.oss_key_prefix + path + filename
+            if self.bucket_style == BucketStyle.S3:
+                key = self._to_object_key(path + filename)
                 if local_path:
                     try:
                         self.client.download_file(self.bucket_name, key, local_path)
                     except ClientError as e:
-                        if e.response["Error"]["Code"] == "404":
+                        if _is_not_found(e):
                             raise NoSuchKey(status=404, headers={}, body={}, details={})
                         raise
                 else:
@@ -205,7 +273,7 @@ class OSS:
                         )
                         return BytesIO(response["Body"].read())
                     except ClientError as e:
-                        if e.response["Error"]["Code"] == "404":
+                        if _is_not_found(e):
                             raise NoSuchKey(status=404, headers={}, body={}, details={})
                         raise
             else:
@@ -228,14 +296,13 @@ class OSS:
     def is_exist(self, path, filename, process_name=None):
         """检查文件是否存在"""
         if self.storage_type == StorageType.OSS:
-            if self.oss_bucket_style == "R2":
-                key = self.oss_key_prefix + path + filename
+            if self.bucket_style == BucketStyle.S3:
+                key = self._to_object_key(path + filename)
                 try:
                     self.client.head_object(Bucket=self.bucket_name, Key=key)
                     return True
                 except ClientError as error:
-                    code = str(error.response.get("Error", {}).get("Code", ""))
-                    if code in {"404", "NoSuchKey", "NotFound"}:
+                    if _is_not_found(error):
                         return False
                     raise
             return self.bucket.object_exists(path + filename)
@@ -261,7 +328,7 @@ class OSS:
     def delete(self, path, filename: Union[str, list[str]]):
         """（批量）删除文件"""
         if self.storage_type == StorageType.OSS:
-            if self.oss_bucket_style == "R2":
+            if self.bucket_style == BucketStyle.S3:
                 if isinstance(filename, list):
                     if len(filename) == 0:
                         return
@@ -269,13 +336,14 @@ class OSS:
                         Bucket=self.bucket_name,
                         Delete={
                             "Objects": [
-                                {"Key": self.oss_key_prefix + path + name}
+                                {"Key": self._to_object_key(path + name)}
                                 for name in filename
                             ]
                         },
                     )
                 return self.client.delete_object(
-                    Bucket=self.bucket_name, Key=self.oss_key_prefix + path + filename
+                    Bucket=self.bucket_name,
+                    Key=self._to_object_key(path + filename),
                 )
             if isinstance(filename, list):
                 if len(filename) == 0:
@@ -311,8 +379,8 @@ class OSS:
 
     def sign_url(self, *args, **kwargs):
         if self.storage_type == StorageType.OSS:
-            if self.oss_bucket_style == "R2":
-                return self._sign_r2_url(*args, **kwargs)
+            if self.bucket_style == BucketStyle.S3:
+                return self._sign_s3_url(*args, **kwargs)
             if self.oss_via_cdn:
                 return self._sign_cdn_url(*args, **kwargs)
             return self._sign_oss_url(*args, **kwargs)
@@ -389,7 +457,7 @@ class OSS:
         )
         return self.bucket.auth._sign_url(req, self.bucket.bucket_name, key, expires)
 
-    def _sign_r2_url(
+    def _sign_s3_url(
         self,
         path,
         filename,
@@ -400,10 +468,10 @@ class OSS:
         **kwargs,
     ):
         """
-        生成 R2 (S3 兼容) 文件访问 URL
+        生成标准 S3 兼容存储的访问 URL（R2 / MinIO / Garage / AWS S3 …）
 
         - CDN 模式（OSS_VIA_CDN=True）：基于 STORAGE_DOMAIN 直出，由 CDN / 反向代理负责回源
-        - 非 CDN 模式：通过 boto3 生成 S3 兼容预签名 URL
+        - 非 CDN 模式：通过 boto3 生成预签名 URL
         """
         if self.oss_via_cdn:
             if oss_domain is None:
@@ -412,10 +480,154 @@ class OSS:
         expires = int(expires)
         params = {
             "Bucket": self.bucket_name,
-            "Key": self.oss_key_prefix + path + filename,
+            "Key": self._to_object_key(path + filename),
         }
         if download:
             params["ResponseContentDisposition"] = "attachment"
         return self.client.generate_presigned_url(
             "get_object", Params=params, ExpiresIn=expires
         )
+
+    # ------------------------------------------------------------------
+    # 低层对象操作（存储池迁移使用）。
+    #
+    # 这三个方法全部工作在「相对 key」空间 —— 与 upload/download 的
+    # path + filename 是同一坐标系，不含 OSS_KEY_PREFIX 总前缀。
+    # 总前缀的加减只发生在这里内部，调用方永远看不到它。
+    # ------------------------------------------------------------------
+    def list_objects(self, prefix: str = "", *, start_after=None, max_keys: int = 1000):
+        """列出对象（单页，不递归到上层目录语义，纯 key 前缀匹配）。
+
+        :param prefix: 相对 key 前缀，例如 ``"files/"``
+        :param start_after: 游标 —— 上一页返回的 ``next``
+        :param max_keys: 单页上限
+        :return: ``{"objects": [{"key","size","etag","last_modified"}], "next": 游标或 None}``
+                 ``next`` 为空表示已到末尾。
+        """
+        if self.storage_type == StorageType.OSS:
+            if self.bucket_style == BucketStyle.S3:
+                kwargs = {
+                    "Bucket": self.bucket_name,
+                    "Prefix": self._to_object_key(prefix),
+                    "MaxKeys": max_keys,
+                }
+                if start_after:
+                    kwargs["StartAfter"] = self._to_object_key(start_after)
+                resp = self.client.list_objects_v2(**kwargs)
+                objects = [
+                    {
+                        "key": self._from_object_key(item["Key"]),
+                        "size": item.get("Size", 0),
+                        "etag": _strip_etag(item.get("ETag")),
+                        "last_modified": item.get("LastModified"),
+                    }
+                    for item in resp.get("Contents", [])
+                ]
+                truncated = bool(resp.get("IsTruncated"))
+            else:
+                # 阿里云分支无总前缀，prefix 原样透传。
+                resp = self.bucket.list_objects_v2(
+                    prefix=prefix,
+                    start_after=start_after or "",
+                    max_keys=max_keys,
+                )
+                objects = [
+                    {
+                        "key": item.key,
+                        "size": item.size,
+                        "etag": _strip_etag(item.etag),
+                        "last_modified": item.last_modified,
+                    }
+                    for item in resp.object_list
+                ]
+                truncated = bool(resp.is_truncated)
+        else:
+            base = os.path.join(self.STORAGE_PATH, prefix)
+            objects = []
+            if os.path.isdir(base):
+                for name in sorted(os.listdir(base)):
+                    file_path = os.path.join(base, name)
+                    if not os.path.isfile(file_path):
+                        continue
+                    objects.append(
+                        {
+                            "key": prefix + name,
+                            "size": os.path.getsize(file_path),
+                            # 本地存储不算 md5：调用方只能按 size 校验。
+                            "etag": None,
+                            "last_modified": None,
+                        }
+                    )
+            truncated = False
+
+        # 用「本页最后一个 key」作游标。不用厂商 token，好处是两种实现
+        # 与断点续传记录都能存同一个字段，重放语义也更直观。
+        next_cursor = objects[-1]["key"] if truncated and objects else None
+        return {"objects": objects, "next": next_cursor}
+
+    def head_object(self, key: str):
+        """取单个对象的元信息；对象不存在返回 ``None``（不抛异常）。
+
+        :param key: 相对 key，例如 ``"files/abc.png"``
+        :return: ``{"key","size","etag","last_modified"}`` 或 ``None``
+        """
+        object_key = self._to_object_key(key)
+        if self.storage_type == StorageType.OSS:
+            if self.bucket_style == BucketStyle.S3:
+                try:
+                    resp = self.client.head_object(
+                        Bucket=self.bucket_name, Key=object_key
+                    )
+                except ClientError as error:
+                    if _is_not_found(error):
+                        return None
+                    raise
+                return {
+                    "key": key,
+                    "size": resp.get("ContentLength", 0),
+                    "etag": _strip_etag(resp.get("ETag")),
+                    "last_modified": resp.get("LastModified"),
+                }
+            if not self.bucket.object_exists(object_key):
+                return None
+            meta = self.bucket.head_object(object_key)
+            return {
+                "key": key,
+                "size": meta.content_length,
+                "etag": _strip_etag(meta.etag),
+                "last_modified": meta.last_modified,
+            }
+        file_path = os.path.join(self.STORAGE_PATH, key)
+        if not os.path.isfile(file_path):
+            return None
+        return {
+            "key": key,
+            "size": os.path.getsize(file_path),
+            "etag": None,
+            "last_modified": None,
+        }
+
+    def copy_object(self, source_key: str, target_key: str):
+        """同桶内服务端复制（不落地、不占带宽）。
+
+        仅适用于同一个桶内搬 key。跨桶或跨服务商请用 ``S3Transfer``（阶段 3）。
+        """
+        if self.storage_type == StorageType.OSS:
+            if self.bucket_style == BucketStyle.S3:
+                return self.client.copy_object(
+                    Bucket=self.bucket_name,
+                    CopySource={
+                        "Bucket": self.bucket_name,
+                        "Key": self._to_object_key(source_key),
+                    },
+                    Key=self._to_object_key(target_key),
+                )
+            return self.bucket.copy_object(
+                self.bucket_name,
+                self._to_object_key(source_key),
+                self._to_object_key(target_key),
+            )
+        source_path = os.path.join(self.STORAGE_PATH, source_key)
+        target_path = os.path.join(self.STORAGE_PATH, target_key)
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        return shutil.copy2(source_path, target_path)

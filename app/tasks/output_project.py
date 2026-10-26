@@ -23,6 +23,27 @@ from celery.utils.log import get_task_logger
 logger = get_task_logger(__name__)
 
 
+def _record_output_bytes(output, project, size):
+    """记下产物字节数，并把增量打到项目账上。
+
+    导出可能重跑（同一 output 重新生成产物），所以按差值记，不是直接累加。
+    项目侧直接打 ``Project``：走 ``File.inc_cache`` 会污染文件级口径。
+    """
+    from app.models.output import Output
+    from app.models.project import Project
+
+    previous = output.storage_bytes or 0
+    if size == previous:
+        return
+    Output.objects(id=output.id).update(set__storage_bytes=size)
+    output.storage_bytes = size
+    delta = size - previous
+    Project.objects(id=project.id).update(
+        inc__output_bytes=delta,
+        inc__file_size=round(delta / 1024),
+    )
+
+
 @celery.task(name="tasks.output_project_task")
 def output_project_task(output_id):
     """
@@ -51,6 +72,11 @@ def output_project_task(output_id):
     type = output.type
     file_ids_include = output.file_ids_include
     file_ids_exclude = output.file_ids_exclude
+    # 导出产物与原图都跟着项目走：项目在存储池里时，读写都指向那个来源。
+    # 注册表为空时这里就是全局 oss，与改造前完全一致。
+    from app.services import storage_router
+
+    project_backend = storage_router.backend_for(project) or oss
 
     safe_project_set_name = re.sub(SAFE_FILENAME_REGEX, "□", project.project_set.name)
     safe_project_name = re.sub(SAFE_FILENAME_REGEX, "□", project.name)
@@ -131,7 +157,7 @@ def output_project_task(output_id):
             # 上传txt到oss
             output.update(file_name=txt_download_name)
             with open(zip_translations_txt_path, "rb") as txt:
-                oss.upload(
+                project_backend.upload(
                     os.path.join(
                         celery.conf.app_config["OSS_OUTPUT_PREFIX"], str(output.id)
                     )
@@ -140,6 +166,9 @@ def output_project_task(output_id):
                     txt,
                     headers={"Content-Disposition": 'attachment;"'.encode("utf8")},
                 )
+            _record_output_bytes(
+                output, project, os.path.getsize(zip_translations_txt_path)
+            )
         elif type == OutputTypes.ALL:
             output.update(status=OutputStatus.DOWNLOADING)
             # 创建项目信息文件
@@ -157,7 +186,7 @@ def output_project_task(output_id):
                     )
                 )
                 try:
-                    oss.download(
+                    project_backend.download(
                         oss_file_prefix,
                         file.save_name,
                         local_path=file_path,
@@ -202,9 +231,10 @@ def output_project_task(output_id):
                         )
                         zip_file.write(file_path, file_in_zip_path)
             # 上传zip到oss
+            zip_size = os.path.getsize(zip_path)
             with open(zip_path, "rb") as zip_file:
                 output.update(file_name=zip_download_name)
-                oss.upload(
+                project_backend.upload(
                     os.path.join(
                         celery.conf.app_config["OSS_OUTPUT_PREFIX"], str(output.id)
                     )
@@ -213,6 +243,7 @@ def output_project_task(output_id):
                     zip_file,
                     headers={"Content-Disposition": 'attachment;"'.encode("utf8")},
                 )
+            _record_output_bytes(output, project, zip_size)
     except Exception:
         output.update(status=OutputStatus.ERROR)
         logger.exception(Exception)

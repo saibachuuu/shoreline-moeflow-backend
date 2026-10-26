@@ -35,6 +35,17 @@ class FileAPITestCase(MoeAPITestCase):
 
             self.app.config["STORAGE_TYPE"] = StorageType.OSS
             self.app.config["OSS_BUCKET_STYLE"] = "R2"
+            # ``oss`` 是进程级单例，只在 init_flask_app 里初始化过一次。
+            # 改了 app.config 就必须重跑 init，否则单例里还是上一套桶/风格
+            # （这正是先前"巧合通过"的根源）。下一个用例的 setUp 会再次重建。
+            # 这里补上假的 endpoint/凭据：boto3 客户端只在构造时读它们，不会联网。
+            self.app.config.update(
+                OSS_ENDPOINT="https://acc.r2.cloudflarestorage.com",
+                OSS_ACCESS_KEY_ID="test-key-id",
+                OSS_ACCESS_KEY_SECRET="test-key-secret",
+                OSS_BUCKET_NAME="test-bucket",
+            )
+            oss.init(self.app.config)
             with (
                 patch.object(oss, "is_exist") as is_exist,
                 patch.object(

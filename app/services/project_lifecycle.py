@@ -206,6 +206,10 @@ class ProjectLifecycleService:
             Output.objects(project=project).delete()
         project.update(
             set__file_size=0,
+            # 占用账的三个分量必须一起归零：只清 file_size 会留下
+            # 「项目已清空、用量还挂着几百 GB」的假账。
+            set__derived_bytes=0,
+            set__output_bytes=0,
             set__folder_count=0,
             set__file_count=0,
             set__source_count=0,

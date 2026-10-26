@@ -57,8 +57,8 @@ def parse_text_task(file_id, old_revision_id=None):
         parse_status=ParseStatus.PARSING,
         parse_start_time=datetime.datetime.utcnow(),
     )
-    # 下载文件，并获取内容
-    text_file = oss.download(oss_file_prefix, file.save_name)
+    # 下载文件，并获取内容（原图可能在存储池里，走项目当前后端）
+    text_file = file.storage_backend.download(oss_file_prefix, file.save_name)
     try:
         text = text_file.read()
     except Exception as e:

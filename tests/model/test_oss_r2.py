@@ -36,12 +36,21 @@ class R2OSSAdapterTestCase(TestCase):
             headers={"Content-Type": "image/png", "Cache-Control": "public"},
         )
 
-        client_factory.assert_called_once_with(
-            "s3",
-            endpoint_url="https://account.r2.cloudflarestorage.com",
-            aws_access_key_id="key-id",
-            aws_secret_access_key="key-secret",
+        # boto3 客户端的构造参数变多了（region / 签名版本 / 寻址风格 / TLS 校验），
+        # 但关键契约没变：服务名、"端点、凭据都还是这三样。
+        client_factory.assert_called_once()
+        self.assertEqual(client_factory.call_args.args, ("s3",))
+        client_kwargs = client_factory.call_args.kwargs
+        self.assertEqual(
+            client_kwargs["endpoint_url"], "https://account.r2.cloudflarestorage.com"
         )
+        self.assertEqual(client_kwargs["aws_access_key_id"], "key-id")
+        self.assertEqual(client_kwargs["aws_secret_access_key"], "key-secret")
+        self.assertEqual(client_kwargs["region_name"], "auto")
+        self.assertEqual(client_kwargs["config"].signature_version, "s3v4")
+        self.assertEqual(client_kwargs["config"].s3["addressing_style"], "path")
+        self.assertTrue(client_kwargs["verify"])
+
         client.put_object.assert_called_once_with(
             Bucket="moeflow",
             Key="storage/files/page 1.png",
