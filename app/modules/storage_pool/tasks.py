@@ -80,7 +80,12 @@ def storage_pool_scan(batch_size: int = SCAN_BATCH_SIZE, force: bool = False):
     max_projects = setting.run_max_projects or DEFAULT_MAX_PROJECTS
 
     queued = 0
+    # 预算是全局的：多来源时也不能每个来源各用一份，否则超发 N 倍。
+    spent = 0
+    started = 0
     for source in sources:
+        if queued >= batch_size or started >= max_projects:
+            break
         cutoff = datetime.datetime.utcnow() - datetime.timedelta(
             days=source.inactive_days or 90
         )
@@ -90,12 +95,12 @@ def storage_pool_scan(batch_size: int = SCAN_BATCH_SIZE, force: bool = False):
             Project.objects(
                 edit_time__lt=cutoff,
                 storage_source_id=None,  # 还没迁的项目
+                # 站长手动锁定的项目不参与自动挑选，只接受手动搬迁。
+                storage_pool_locked__ne=True,
             )
             .order_by("edit_time", "id")
             .limit(batch_size)
         )
-        spent = 0
-        started = 0
         for project in candidates:
             if queued >= batch_size or started >= max_projects:
                 break

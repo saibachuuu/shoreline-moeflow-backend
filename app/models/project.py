@@ -426,6 +426,10 @@ class Project(GroupMixin, Document):
     storage_source_id = ObjectIdField(db_field="csid", null=True)
     # 上次切换存储来源的时间，供排障与「最近迁移」列表使用。
     storage_source_switched_time = DateTimeField(db_field="csw", null=True)
+    # 存储锁定：站长手动锁住后，自动巡查跳过它，手动搬迁接口也拒绝
+    # （migrate / restore / move 全拦），解锁后才能再挪。
+    # 默认 False，不影响存量项目。
+    storage_pool_locked = BooleanField(db_field="splk", default=False)
 
     # == GroupMixin ==
     default_role_system_code = "translator"
@@ -1279,6 +1283,16 @@ class Project(GroupMixin, Document):
             "import_from_labelplus_error_type_name": ImportFromLabelplusErrorType.get_detail_by_value(
                 self.import_from_labelplus_error_type, "name"
             ),
+            # 存储位置：None = 默认存储，否则为来源 id。站长在项目设置里手动
+            # 搬迁就看这个字段。id 本身不敏感（不是凭据），成员可见无妨。
+            "storage_source_id": str(self.storage_source_id)
+            if self.storage_source_id
+            else None,
+            "storage_source_switched_time": self.storage_source_switched_time.isoformat()
+            if self.storage_source_switched_time
+            else None,
+            # 站长在项目设置里手动锁定/解锁就看这个字段。
+            "storage_pool_locked": bool(self.storage_pool_locked),
         }
         # Worker identities are exposed through the project members endpoint.
         if with_team:
@@ -1409,6 +1423,8 @@ class Project(GroupMixin, Document):
             "target_count": self.target_count,
             "translated_source_count": self.translated_source_count,
             "checked_source_count": self.checked_source_count,
+            # 卡片上的小磁盘徽标就读这个；是文档自带字段，不额外查库。
+            "file_size": self.file_size,
             "team": team_data,
             "project_set": set_cache[project_set_id],
         }

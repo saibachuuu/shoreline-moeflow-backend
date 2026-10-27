@@ -40,10 +40,12 @@ class TransferDirection(IntType):
 
     IN = 0  # 默认存储 → 池来源
     OUT = 1  # 池来源 → 默认存储（回迁）
+    MOVE = 2  # 池来源 → 另一池来源（直转，不经过默认存储）
 
     details = {
         "IN": {"name": "迁入存储池"},
         "OUT": {"name": "回迁到默认存储"},
+        "MOVE": {"name": "转到其他来源"},
     }
 
 
@@ -68,16 +70,18 @@ class TransferObjectStatus(IntType):
 class StorageObjectKind(StrType):
     """参与迁移的对象种类。
 
-    只搬这两类：原图与导出产物。派生图（cover/resample/proofread）永远留在
-    默认存储，文本原文与头像也不搬。
+    只搬这三类：原图、文本原文（txt）与导出产物。派生图（cover/resample/proofread）
+    永远留在默认存储，头像不搬。
     """
 
     ORIGINAL = "original"
     OUTPUT = "output"
+    TEXT = "text"
 
     details = {
         "ORIGINAL": {"name": "原图"},
         "OUTPUT": {"name": "导出产物"},
+        "TEXT": {"name": "文本原文"},
     }
 
 

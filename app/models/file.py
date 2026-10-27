@@ -711,6 +711,10 @@ class File(Document):
     def storage_backend(self):
         """原图所在的后端：默认存储，或本项目指向的存储来源。
 
+        只有 IMAGE 走存储池。TEXT（文本原文）永远在默认存储，不参与
+        迁移（见存储池 transfer.enumerate_objects），所以这里直接返回
+        全局 oss —— 否则迁入池后旧文本全部 404（读写分叉）。
+
         注册表为空（存储池模块未安装/未启用）时**直接返回全局 oss**，
         连项目 id 都不读 —— 否则每次序列化都要为这一行多查一次项目，
         而那时候这个查询毫无意义。
@@ -744,8 +748,8 @@ class File(Document):
 
     def _processed_image_url(self, process_name):
         # ⚠️ 派生图（cover/resample）**永远在默认存储**，因此这里显式用全局
-        # ``oss`` 而不是 ``self.storage_backend``。项目搬进存储池时只搬原图，
-        # 派生图留在原地；误路由会让所有缩略图 404。
+        # ``oss`` 而不是 ``self.storage_backend``。项目搬进存储池时只搬原图
+        # 和文本，派生图留在原地；误路由会让所有缩略图 404。
         if not self.save_name:
             return ""
 
@@ -795,7 +799,7 @@ class File(Document):
     @only_file
     def download_real_file(self, local_path=None):
         """下载源文件"""
-        # 从原图所在的后端取（默认存储，或项目指向的存储来源）
+        # 从文件所在的后端取（默认存储，或项目指向的存储来源）
         if not self.save_name:
             raise SourceFileNotExist(self.file_not_exist_reason)
         return self.storage_backend.download(
@@ -921,8 +925,9 @@ class File(Document):
     def _delete_stored_objects(self, save_names):
         """删除原图与它的派生图。
 
-        **原图可能在存储池里，派生图一定在默认存储** —— 所以不能一次 batch 删完：
-        原图交给 ``storage_backend``，派生图交给全局 ``oss``。
+        **原图/文本都跟着项目指针走，可能在存储池里；派生图一定在默认存储**
+        —— 所以不能一次 batch 删完：前者交给 ``storage_backend``，
+        派生图交给全局 ``oss``。
         后端就是默认存储时仍然合成一次调用，省一次往返。
         """
         file_prefix = current_app.config["OSS_FILE_PREFIX"]

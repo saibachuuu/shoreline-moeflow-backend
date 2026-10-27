@@ -27,12 +27,15 @@ from .models import (
     StoragePoolStatsMixin,
     StorageTransfer,
     StorageTransferObject,
+    TransferBreakdown,
     normalize_sub_path,
 )
 from .tasks import storage_pool_scan
 from . import transfer as transfer_service
 from .validators import (
+    LockSchema,
     MigrateSchema,
+    MoveSchema,
     SourceCreateSchema,
     SourceUpdateSchema,
     StoragePoolSettingSchema,
@@ -74,11 +77,32 @@ class TransferNotAllowedError(APIError):
     message = gettext("当前状态不允许该操作")
 
 
+class SourceBusyError(APIError):
+    status_code = 409
+    code = 6
+    message = gettext("该来源有正在进行的迁移任务，请等待任务结束后再操作")
+
+
 def _get_source(source_id):
     source = StoragePoolSource.objects(id=source_id).first()
     if source is None:
         raise SourceNotFoundError()
     return source
+
+
+def _get_project(project_id):
+    project = Project.objects(id=project_id).first()
+    if project is None:
+        raise TransferNotAllowedError(gettext("项目不存在"))
+    return project
+
+
+def _require_unlocked(project):
+    """锁定的项目连手动也不许挪：先解锁，再搬迁。"""
+    if getattr(project, "storage_pool_locked", False):
+        raise TransferNotAllowedError(
+            gettext("该项目已锁定存储位置，请先解锁再搬迁")
+        )
 
 
 class SourceListAPI(MoeAPIView):
@@ -114,15 +138,22 @@ class SourceListAPI(MoeAPIView):
         @apiParam {String} secret_access_key 访问密钥
         """
         data = self.get_json(SourceCreateSchema())
+        # 粘贴带空格很常见（" usagis" 签名直接 400）：连接三要素去空格，
+        # region 为空回退 auto。
+        for field in ("endpoint", "bucket", "region"):
+            if isinstance(data.get(field), str):
+                data[field] = data[field].strip()
+        if not data.get("region"):
+            data["region"] = "auto"
         source = StoragePoolSource(**data)
         # 先测连通性再落库：存一个连不上的来源，只会在日后迁移时炸。
+        # 注意别再拼一遍「连通性测试失败」：APIError 会把传入的消息拼到类默认
+        # 文案后面，拼了就会出现两次。
         try:
             transfer_service.test_connection(source)
         except Exception as error:
             logger.warning("存储来源连通性测试失败：%s", error)
-            raise SourceUnreachableError(
-                f"{gettext('存储来源连通性测试失败')}：{error}"
-            )
+            raise SourceUnreachableError(str(error))
         source.save()
         return source.to_api()
 
@@ -138,20 +169,60 @@ class SourceAPI(MoeAPIView):
         @apiUse APIHeader
         @apiUse TokenHeader
 
-        @apiDescription 凭据字段留空表示不修改。`has_data` 为真时禁止改 `sub_path`。
+        @apiDescription 凭据字段留空表示不修改。`has_data` 为真时禁止改位置四要素
+        （`endpoint / bucket / region / addressing_style` 与 `sub_path`）；
+        换凭据必须先通过连通性测试。
         """
         source = _get_source(source_id)
         data = self.get_json(SourceUpdateSchema())
 
+        # 同新增：连接三要素去空格，region 为空回退 auto。
+        # 放比较之前，"us-east-1 " 这种等价改写才不会误触发验货。
+        for field in ("endpoint", "bucket", "region"):
+            if isinstance(data.get(field), str):
+                data[field] = data[field].strip()
+                if field == "region" and not data[field]:
+                    data[field] = "auto"
+
+        # 位置四要素 + 子路径：已有项目迁入后改任何一个都等于让那些项目失联。
+        if source.has_data:
+            for field in ("endpoint", "bucket", "region", "addressing_style"):
+                if field in data and (data[field] or "") != (getattr(source, field) or ""):
+                    raise SubPathLockedError()
         if "sub_path" in data:
             new_sub_path = normalize_sub_path(data["sub_path"])
             if new_sub_path != source.normalized_sub_path() and source.has_data:
                 raise SubPathLockedError()
 
+        # 语义级变化才验货：等价改写（如 "storage//" → "storage/"）不触发，
+        # 否则每次改个备注名都要去连一次桶。
+        credential_changed = any(
+            data.get(key) for key in ("access_key_id", "secret_access_key")
+        )
+        location_changed = any(
+            field in data and (data[field] or "") != (getattr(source, field) or "")
+            for field in ("endpoint", "bucket", "region", "addressing_style")
+        )
+        if "sub_path" in data:
+            location_changed = location_changed or (
+                normalize_sub_path(data["sub_path"]) != source.normalized_sub_path()
+            )
+        verify_changed = (
+            "verify_ssl" in data and bool(data["verify_ssl"]) != bool(source.verify_ssl)
+        )
+
         for key, value in data.items():
             if key in ("access_key_id", "secret_access_key") and not value:
                 continue
             setattr(source, key, value)
+        # 改了连接类字段必须先验货：存一个连不上的来源，
+        # 只会在日后迁移时炸。凭据轮换也走同一道门。
+        if credential_changed or location_changed or verify_changed:
+            try:
+                transfer_service.test_connection(source)
+            except Exception as error:
+                logger.warning("存储来源连通性测试失败：%s", error)
+                raise SourceUnreachableError(str(error))
         source.update_time = datetime.datetime.utcnow()
         source.save()
         return source.to_api()
@@ -166,11 +237,18 @@ class SourceAPI(MoeAPIView):
         @apiUse APIHeader
         @apiUse TokenHeader
 
-        @apiDescription 仍有项目指向该来源时拒绝删除（否则这些项目立刻读不到文件）。
+        @apiDescription 仍有项目指向该来源，或还有引用它的迁移任务在跑时拒绝删除。
         """
         source = _get_source(source_id)
         if Project.objects(storage_source_id=source.id).first() is not None:
             raise SourceInUseError()
+        if (
+            StorageTransfer.objects(
+                source=source, status__in=TransferStatus.ACTIVE
+            ).first()
+            is not None
+        ):
+            raise SourceBusyError()
         source.delete()
         return {"message": gettext("已删除")}
 
@@ -207,9 +285,24 @@ class TransferListAPI(MoeAPIView):
         @apiGroup StoragePool
         @apiUse APIHeader
         @apiUse TokenHeader
+
+        @apiParam {String} [project_id] 只看某一个项目的迁移记录（项目设置页用）。
         """
+        from flask import request
+
+        from bson import ObjectId
+        from bson.errors import InvalidId
+
         p = MoePagination()
-        transfers = StorageTransfer.objects().order_by("-create_time")
+        query = StorageTransfer.objects().order_by("-create_time")
+        project_id = request.args.get("project_id")
+        if project_id:
+            # 格式不对直接返回空列表，不 500 —— 前端传参拼错时好排查。
+            try:
+                query = query.filter(project=ObjectId(project_id))
+            except InvalidId:
+                query = query.filter(id__in=[])
+        transfers = query
         return p.set_objects(transfers)
 
 
@@ -227,12 +320,14 @@ class ProjectMigrateAPI(MoeAPIView):
         @apiParam {String} source_id 目标存储来源
         """
         data = self.get_json(MigrateSchema())
-        project = Project.objects(id=project_id).first()
-        if project is None:
-            raise TransferNotAllowedError(gettext("项目不存在"))
+        project = _get_project(project_id)
+        _require_unlocked(project)
         if project.storage_source_id:
             raise TransferNotAllowedError(gettext("该项目已在存储池中"))
         source = _get_source(data["source_id"])
+        # 禁用的来源读侧已无人认领（退化为默认存储）：此时迁入等于失联。
+        if not source.enabled:
+            raise TransferNotAllowedError(gettext("该存储来源已停用"))
         transfer = transfer_service.prepare(project, source, TransferDirection.IN)
         _dispatch(transfer)
         return transfer.to_api()
@@ -249,9 +344,8 @@ class ProjectRestoreAPI(MoeAPIView):
         @apiUse APIHeader
         @apiUse TokenHeader
         """
-        project = Project.objects(id=project_id).first()
-        if project is None:
-            raise TransferNotAllowedError(gettext("项目不存在"))
+        project = _get_project(project_id)
+        _require_unlocked(project)
         if not project.storage_source_id:
             raise TransferNotAllowedError(gettext("该项目不在存储池中"))
         source = StoragePoolSource.objects(id=project.storage_source_id).first()
@@ -260,6 +354,101 @@ class ProjectRestoreAPI(MoeAPIView):
         transfer = transfer_service.prepare(project, source, TransferDirection.OUT)
         _dispatch(transfer)
         return transfer.to_api()
+
+
+class ProjectMoveAPI(MoeAPIView):
+    @admin_required
+    def post(self, project_id):
+        """
+        @api {post} /v1/admin/storage-pool/projects/:id/move 搬到指定位置
+        @apiVersion 1.0.0
+        @apiName postStoragePoolMoveAPI
+        @apiGroup StoragePool
+        @apiUse APIHeader
+        @apiUse TokenHeader
+
+        @apiParam {String} [target_source_id] 目标来源 id；不传、传空或传
+            "default" 表示搬回默认存储。其它值必须是启用的来源 id。
+
+        统一入口：默认→源（迁入）、源→默认（回迁）、源A→源B（直转）
+        都走这里。原 migrate / restore 接口保留做兼容。
+        """
+        data = self.get_json(MoveSchema())
+        project = _get_project(project_id)
+        _require_unlocked(project)
+        raw_target = (data.get("target_source_id") or "").strip()
+        if raw_target.lower() == "default":
+            raw_target = ""
+
+        current_id = (
+            str(project.storage_source_id) if project.storage_source_id else ""
+        )
+        # 目标是默认存储：已在默认就不用动，否则回迁。
+        if not raw_target:
+            if not current_id:
+                raise TransferNotAllowedError(gettext("该项目已在默认存储"))
+            source = StoragePoolSource.objects(id=project.storage_source_id).first()
+            if source is None:
+                raise SourceNotFoundError()
+            transfer = transfer_service.prepare(
+                project, source, TransferDirection.OUT
+            )
+            _dispatch(transfer)
+            return transfer.to_api()
+
+        target = _get_source(raw_target)
+        if not target.enabled:
+            raise TransferNotAllowedError(gettext("该存储来源已停用"))
+        # 目标就是当前位置：IN 要求项目在默认，MOVE/MOVE-to-self 要求换源，
+        # 原地踏步直接拒绝，免得建个空任务占坑。
+        if current_id == str(target.id):
+            raise TransferNotAllowedError(gettext("该项目已在该位置，无需搬迁"))
+        if not current_id:
+            direction = TransferDirection.IN
+            origin = target
+            extra = {}
+        else:
+            origin = StoragePoolSource.objects(
+                id=project.storage_source_id
+            ).first()
+            if origin is None:
+                raise SourceNotFoundError()
+            direction = TransferDirection.MOVE
+            extra = {"target_source": target}
+        transfer = transfer_service.prepare(project, origin, direction, **extra)
+        _dispatch(transfer)
+        return transfer.to_api()
+
+
+class ProjectLockAPI(MoeAPIView):
+    @admin_required
+    def post(self, project_id):
+        """
+        @api {post} /v1/admin/storage-pool/projects/:id/lock 锁定项目存储位置
+        @apiVersion 1.0.0
+        @apiName postStoragePoolLockAPI
+        @apiGroup StoragePool
+        @apiUse APIHeader
+        @apiUse TokenHeader
+
+        @apiParam {Boolean} locked true=锁定，false=解锁。
+
+        锁定后自动巡查跳过它，migrate / restore / move 也全部拒绝；
+        解锁后才能再挪。有进行中的任务时不许锁 —— 等它跑完再说，
+        否则锁住了连重试也被拦，任务就卡死了。
+        """
+        data = self.get_json(LockSchema())
+        project = _get_project(project_id)
+        locked = bool(data.get("locked", True))
+        if locked and StorageTransfer.objects(
+            project=project, status__in=TransferStatus.ACTIVE
+        ).first():
+            raise TransferNotAllowedError(
+                gettext("该项目有正在进行的迁移任务，请等待任务结束后再锁定")
+            )
+        project.update(set__storage_pool_locked=locked)
+        project.reload()
+        return project.to_api()
 
 
 class TransferRetryAPI(MoeAPIView):
@@ -278,15 +467,41 @@ class TransferRetryAPI(MoeAPIView):
             raise TransferNotAllowedError(gettext("迁移任务不存在"))
         if transfer.status not in TransferStatus.RETRYABLE:
             raise TransferNotAllowedError()
-        # 失败对象回到待搬运，其余状态保留（已校验的不必重搬）。
-        StorageTransferObject.objects(
-            transfer=transfer, status=TransferObjectStatus.FAILED
-        ).update(set__status=TransferObjectStatus.PENDING)
-        transfer.update(
-            set__status=TransferStatus.PENDING,
-            set__last_error="",
-            set__finish_time=None,
-        )
+        # 锁定的项目连重试也不许：锁住就是「谁都不许动它」。
+        if transfer.project is not None:
+            _require_unlocked(transfer.project)
+        # ABORTED 意味着清单已过期（期间新增文件或快照对不上）：删掉旧行，
+        # 按当前清单重建并刷新快照，否则切指针的二次确认会再次 ABORT，
+        # 重试永远转圈。FAILED 则只把失败行置回 PENDING（断点续跑）。
+        if transfer.status == TransferStatus.ABORTED:
+            project = transfer.project
+            if project is None:
+                raise TransferNotAllowedError(gettext("项目不存在"))
+            StorageTransferObject.objects(transfer=transfer).delete()
+            kinds = transfer_service.enumerate_object_kinds(project)
+            transfer_service._build_object_rows(transfer, kinds)
+            transfer.update(
+                set__status=TransferStatus.PENDING,
+                set__total_objects=len(kinds),
+                set__total_bytes=(project.file_size or 0) * 1024,
+                set__copied_objects=0,
+                set__copied_bytes=0,
+                set__breakdown=TransferBreakdown(),
+                set__snapshot_edit_time=project.edit_time,
+                set__stall_count=0,
+                set__last_error="",
+                set__finish_time=None,
+            )
+        else:
+            # 失败对象回到待搬运，其余状态保留（已校验的不必重搬）。
+            StorageTransferObject.objects(
+                transfer=transfer, status=TransferObjectStatus.FAILED
+            ).update(set__status=TransferObjectStatus.PENDING)
+            transfer.update(
+                set__status=TransferStatus.PENDING,
+                set__last_error="",
+                set__finish_time=None,
+            )
         _dispatch(transfer)
         return transfer.to_api()
 
@@ -581,6 +796,16 @@ blueprint.add_url_rule(
     "/projects/<project_id>/restore",
     methods=["POST", "OPTIONS"],
     view_func=ProjectRestoreAPI.as_view("project_restore"),
+)
+blueprint.add_url_rule(
+    "/projects/<project_id>/move",
+    methods=["POST", "OPTIONS"],
+    view_func=ProjectMoveAPI.as_view("project_move"),
+)
+blueprint.add_url_rule(
+    "/projects/<project_id>/lock",
+    methods=["POST", "OPTIONS"],
+    view_func=ProjectLockAPI.as_view("project_lock"),
 )
 blueprint.add_url_rule(
     "/stats",

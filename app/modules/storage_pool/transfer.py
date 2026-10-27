@@ -28,6 +28,7 @@ from .constants import (
     CONTINUE_COUNTDOWN,
     MAX_STALLS,
     PROBE_OBJECT_NAME,
+    StorageObjectKind,
     TransferDirection,
     TransferObjectStatus,
     TransferStatus,
@@ -45,53 +46,92 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------
 # 清单
 # ----------------------------------------------------------------------
+def enumerate_object_kinds(project) -> dict:
+    """列出该项目需要搬运的 ``{相对 key: kind}``。
+
+    kind 取 ``StorageObjectKind`` 的三值之一。TEXT 的 key 也在 ``files/`` 下，
+    仅靠前缀分不出原图和文本，所以在这里一次查清，后面建行、记账都用它。
+    """
+    from .constants import StorageObjectKind
+
+    file_prefix = current_app.config["OSS_FILE_PREFIX"]
+    output_prefix = current_app.config["OSS_OUTPUT_PREFIX"]
+
+    kinds = {}
+    # 原图与文本原文：都在 files/ 下，kind 不同（记账口径不同，见 _copy_objects）。
+    # 文件夹没有 save_name，查出来是空串，跳过。
+    text_names = set(
+        File.objects(project=project, type=FileType.TEXT).scalar("save_name")
+    )
+    for save_name in File.objects(
+        project=project, type__in=(FileType.IMAGE, FileType.TEXT)
+    ).scalar("save_name"):
+        if save_name:
+            key = file_prefix + save_name
+            kinds[key] = (
+                StorageObjectKind.TEXT
+                if save_name in text_names
+                else StorageObjectKind.ORIGINAL
+            )
+    # 导出产物：outputs/<output.id>/<file_name>（含 txt 导出，一起搬）。
+    for output in Output.objects(project=project, file_name__ne=""):
+        kinds[output_prefix + str(output.id) + "/" + output.file_name] = (
+            StorageObjectKind.OUTPUT
+        )
+    return kinds
+
+
 def enumerate_objects(project) -> list[str]:
     """列出该项目需要搬运的相对 key。
 
     **按数据库清单枚举，不反查桶**：更准（桶里可能有别的项目/历史的垃圾），
     也不依赖桶的列举权限。
 
-    只搬原图与导出产物；派生图、文本原文、头像都不搬（见规划 §3.5）。
+    搬三类：原图（IMAGE）、文本原文（TEXT，key 也在 ``files/`` 下）与导出
+    产物（``outputs/<id>/<file_name>``，含 txt 导出）；派生图、头像都不搬。
     """
-    file_prefix = current_app.config["OSS_FILE_PREFIX"]
-    output_prefix = current_app.config["OSS_OUTPUT_PREFIX"]
-
-    keys = []
-    # 原图：只有 IMAGE 类型有对象；文件夹/文本没有 save_name
-    for save_name in File.objects(project=project, type=FileType.IMAGE).scalar(
-        "save_name"
-    ):
-        if save_name:
-            keys.append(file_prefix + save_name)
-    # 导出产物：outputs/<output.id>/<file_name>
-    for output in Output.objects(project=project, file_name__ne=""):
-        keys.append(output_prefix + str(output.id) + "/" + output.file_name)
-    return keys
+    return list(enumerate_object_kinds(project))
 
 
 def _default_backend():
     return oss
 
 
-def _backends_for(direction, source):
-    """返回 ``(src, dst)``。"""
-    pool = PoolBackend(source)
-    if direction == TransferDirection.IN:
-        return _default_backend(), pool
-    return pool, _default_backend()
+def _backends_for(transfer):
+    """返回 ``(src, dst)``。
+
+    IN：默认存储 → 目标池源；OUT：当前池源 → 默认存储；
+    MOVE：源池源 → 目标池源（直转，不经过默认存储）。
+    """
+    pool_of = PoolBackend
+    if transfer.direction == TransferDirection.IN:
+        return _default_backend(), pool_of(transfer.source)
+    if transfer.direction == TransferDirection.OUT:
+        return pool_of(transfer.source), _default_backend()
+    # MOVE
+    return pool_of(transfer.source), pool_of(transfer.target_source)
 
 
 # ----------------------------------------------------------------------
 # 建任务
 # ----------------------------------------------------------------------
-def prepare(project, source, direction=TransferDirection.IN):
+def prepare(project, source, direction=TransferDirection.IN, target_source=None):
     """建（或复用）一个迁移任务，并把清单落成逐对象行。
 
     幂等：同一项目已有未结束的任务时直接返回它，不重复建。
+    复用键包含方向、来源与目标 —— 迁入、回迁、直转是三件不同的事，
+    拿错任务会把数据往反方向搬。
     """
-    active = StorageTransfer.objects(
-        project=project, status__in=TransferStatus.ACTIVE
-    ).first()
+    query = StorageTransfer.objects(
+        project=project,
+        source=source,
+        direction=direction,
+        status__in=TransferStatus.ACTIVE,
+    )
+    # target_source 是后加字段：旧任务读出来是 None，正好和
+    # 「IN/OUT 不分目标」的语义对上，直接按值比即可。
+    query = query.filter(target_source=target_source)
+    active = query.first()
     if active is not None:
         return active
 
@@ -100,26 +140,32 @@ def prepare(project, source, direction=TransferDirection.IN):
         project=project,
         status=TransferStatus.PENDING,
         direction=direction,
+        target_source=target_source,
         snapshot_edit_time=project.edit_time,
         breakdown=TransferBreakdown(),
     ).save()
 
-    keys = enumerate_objects(project)
-    for key in keys:
-        StorageTransferObject(
-            transfer=transfer,
-            src_key=key,
-            dst_key=key,
-            status=TransferObjectStatus.PENDING,
-        ).save()
+    _build_object_rows(transfer, enumerate_object_kinds(project))
     transfer.update(
-        set__total_objects=len(keys),
+        set__total_objects=StorageTransferObject.objects(transfer=transfer).count(),
         # 估算值：项目占用（KB）× 1024。真正搬多少以 copied_bytes 为准，
         # 这个数只用于「本轮预算够不够开工」的判断和进度条分母。
         set__total_bytes=(project.file_size or 0) * 1024,
     )
     transfer.reload()
     return transfer
+
+
+def _build_object_rows(transfer, kinds) -> None:
+    """按 ``{key: kind}`` 落逐对象行。建任务与 ABORTED 重试共用。"""
+    for key, kind in kinds.items():
+        StorageTransferObject(
+            transfer=transfer,
+            src_key=key,
+            dst_key=key,
+            kind=kind,
+            status=TransferObjectStatus.PENDING,
+        ).save()
 
 
 # ----------------------------------------------------------------------
@@ -158,7 +204,7 @@ def run(transfer_id):
         _fail(transfer, "来源或项目已不存在")
         return "失败：来源或项目已不存在"
 
-    src, dst = _backends_for(transfer.direction, source)
+    src, dst = _backends_for(transfer)
 
     if transfer.status == TransferStatus.COPYING:
         moved, pending, failed = _copy_objects(transfer, src, dst, source)
@@ -217,6 +263,13 @@ def run(transfer_id):
             set__finish_time=datetime.datetime.utcnow(),
         )
         _refresh_source_has_data(source)
+        # 直转搬空了源、填满了目标：两边的 has_data 都要重算，
+        # 否则源删空了还锁着 sub_path，目标进了项目还显示无数据。
+        if (
+            transfer.direction == TransferDirection.MOVE
+            and transfer.target_source is not None
+        ):
+            _refresh_source_has_data(transfer.target_source)
         return "成功：迁移完成"
 
     return f"未知状态：{transfer.status}"
@@ -225,11 +278,17 @@ def run(transfer_id):
 def _copy_objects(transfer, src, dst, source):
     """逐对象搬运。返回 ``(本轮搬了多少, 还剩多少, 失败多少)``。
 
-    单次调用上限 ``source.max_objects_per_run``：一个项目几千张图，拆成多次
+    单次调用上限取源与目标配置的较小值：一个项目几千张图，拆成多次
     才不会让一次任务跑几十分钟被 worker 超时杀掉。**这是安全阀，不是预算**
     —— 预算只在 scan 的项目粒度上做。
     """
-    limit = source.max_objects_per_run or 2000
+    limits = [source.max_objects_per_run or 2000]
+    if (
+        transfer.direction == TransferDirection.MOVE
+        and transfer.target_source is not None
+    ):
+        limits.append(transfer.target_source.max_objects_per_run or 2000)
+    limit = min(limits)
     pending_qs = StorageTransferObject.objects(
         transfer=transfer, status=TransferObjectStatus.PENDING
     ).order_by("id")
@@ -244,9 +303,9 @@ def _copy_objects(transfer, src, dst, source):
 
     moved = 0
     for row in pending_qs.limit(limit):
-        moved += 1
         try:
             size, etag = S3Transfer(src, dst).transfer(row.src_key, size=row.size)
+            moved += 1
             row.update(
                 set__status=TransferObjectStatus.COPIED,
                 set__size=size,
@@ -258,7 +317,14 @@ def _copy_objects(transfer, src, dst, source):
                 "inc__copied_bytes": size,
                 "inc__breakdown__object_count": 1,
             }
-            if row.src_key.startswith(output_prefix):
+            # 文本原文的 key 也在 files/ 下，仅靠前缀分不出；
+            # 建任务时写死的 kind 说了算，旧任务没有 kind 才按前缀回退。
+            kind = row.kind or (
+                StorageObjectKind.OUTPUT
+                if row.src_key.startswith(output_prefix)
+                else StorageObjectKind.ORIGINAL
+            )
+            if kind in (StorageObjectKind.OUTPUT, StorageObjectKind.TEXT):
                 counters["inc__breakdown__output_bytes"] = size
             else:
                 counters["inc__breakdown__origin_bytes"] = size
@@ -357,6 +423,35 @@ def _switch_pointer(transfer, project, source):
             return False, "搬运期间项目文件有变更，已中止（可重试）"
 
         target_id = None if transfer.direction == TransferDirection.OUT else source.id
+        if transfer.direction == TransferDirection.MOVE:
+            # 直转的目标是另一池源，不在 source 上。
+            target_id = (
+                transfer.target_source.id if transfer.target_source else None
+            )
+        # 方向守卫：两个反向任务并发时，后切的那个必须停下来，
+        # 否则 IN/OUT 互相覆盖，数据在两桶之间来回倒。
+        project.reload()
+        current_id = getattr(project, "storage_source_id", None)
+        if transfer.direction == TransferDirection.IN:
+            if current_id is not None and str(current_id) == str(target_id):
+                transfer.update(set__status=TransferStatus.SWITCHED)
+                return True, ""
+            if current_id is not None:
+                return False, "项目已被其他任务迁移，已中止"
+        elif transfer.direction == TransferDirection.MOVE:
+            if current_id is not None and str(current_id) == str(target_id):
+                transfer.update(set__status=TransferStatus.SWITCHED)
+                return True, ""
+            # 直转要求项目还在源上：中途被回迁/转走就停下，
+            # 否则会把一份旧桶的数据切成新指针。
+            if current_id is None or str(current_id) != str(source.id):
+                return False, "项目已被其他任务迁移，已中止"
+        else:
+            if current_id is None:
+                transfer.update(set__status=TransferStatus.SWITCHED)
+                return True, ""
+            if str(current_id) != str(source.id):
+                return False, "项目已被其他任务迁移，已中止"
         Project.objects(id=project.id).update(
             set__storage_source_id=target_id,
             set__storage_source_switched_time=datetime.datetime.utcnow(),

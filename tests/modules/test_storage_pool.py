@@ -214,7 +214,7 @@ class TransferStateMachineTestCase(MoeTestCase):
         return patch.object(
             transfer_service,
             "_backends_for",
-            side_effect=lambda direction, source: (self.src_backend, self.fake),
+            side_effect=lambda transfer: (self.src_backend, self.fake),
         )
 
     def _run(self, transfer):
@@ -323,7 +323,7 @@ class LockTestCase(MoeTestCase):
 
 
 class EnumerateTestCase(MoeTestCase):
-    def test_only_images_and_outputs_are_migrated(self):
+    def test_images_texts_and_outputs_are_migrated(self):
         project = self.create_project("pool-enum")
         image = project.create_file("a.png")
         image.update(save_name="a.png", type=2)
@@ -331,7 +331,20 @@ class EnumerateTestCase(MoeTestCase):
         text.update(save_name="b.txt", type=3)
 
         keys = transfer_service.enumerate_objects(project)
-        self.assertEqual(["files/a.png"], keys)
+        self.assertEqual(["files/a.png", "files/b.txt"], keys)
+
+    def test_text_kind_is_recorded_for_accounting(self):
+        from app.modules.storage_pool.constants import StorageObjectKind
+
+        project = self.create_project("pool-enum-kind")
+        image = project.create_file("a.png")
+        image.update(save_name="a.png", type=2)
+        text = project.create_file("b.txt")
+        text.update(save_name="b.txt", type=3)
+
+        kinds = transfer_service.enumerate_object_kinds(project)
+        self.assertEqual(StorageObjectKind.ORIGINAL, kinds["files/a.png"])
+        self.assertEqual(StorageObjectKind.TEXT, kinds["files/b.txt"])
 
 
 class SettingDefaultTestCase(MoeTestCase):
@@ -581,6 +594,8 @@ class BreakdownTestCase(MoeTestCase):
         self.project = self.create_project("pool-breakdown")
         image = self.project.create_file("page.png")
         image.update(save_name="page.png")
+        text = self.project.create_file("note.txt")
+        text.update(save_name="note.txt", type=3)
 
         from app.constants.output import OutputStatus
         from app.models.output import Output
@@ -600,22 +615,22 @@ class BreakdownTestCase(MoeTestCase):
             patch.object(
                 transfer_service,
                 "_backends_for",
-                side_effect=lambda direction, source: (FakeBackend(), fake),
+                side_effect=lambda transfer: (FakeBackend(), fake),
             ),
             patch.object(transfer_service, "_continue_later"),
         ):
             transfer = transfer_service.prepare(self.project, self.source)
-            self.assertEqual(2, transfer.total_objects)
+            self.assertEqual(3, transfer.total_objects)
             transfer_service.run(str(transfer.id))
 
         transfer.reload()
         self.assertEqual(TransferStatus.DONE, transfer.status)
         breakdown = transfer.breakdown
         self.assertIsNotNone(breakdown)
-        self.assertEqual(2, breakdown.object_count)
-        # FakeBackend 每个对象固定 1024 字节
+        self.assertEqual(3, breakdown.object_count)
+        # FakeBackend 每个对象固定 1024 字节；文本原文跟导出产物一起算体积。
         self.assertEqual(1024, breakdown.origin_bytes)
-        self.assertEqual(1024, breakdown.output_bytes)
+        self.assertEqual(2048, breakdown.output_bytes)
 
 
 class UsageApiTestCase(MoeAPITestCase):
@@ -648,3 +663,352 @@ class UsageApiTestCase(MoeAPITestCase):
         user = self.create_user("usage-plain")
         response = self.get("/v1/admin/storage-pool/usage", token=user.generate_token())
         self.assertErrorEqual(response, NoPermissionError)
+
+
+class StoragePoolFixRegressionTestCase(MoeAPITestCase):
+    """本轮修复的回归测试：禁用的来源、位置字段锁定、TEXT 路由、ABORTED 重试。"""
+
+    def _admin_token(self):
+        admin = self.create_user("fix-admin")
+        admin.update(set__admin=True)
+        admin.reload()
+        return admin.generate_token()
+
+    def _make_source(self, **kwargs):
+        data = dict(
+            name="fix-pool",
+            endpoint="https://acc.r2.cloudflarestorage.com",
+            bucket="cold",
+            sub_path="storage/",
+            access_key_id="AKIAEXAMPLE1234",
+            secret_access_key="secret",
+        )
+        data.update(kwargs)
+        return StoragePoolSource(**data).save()
+
+    def test_migrate_to_disabled_source_is_rejected(self):
+        source = self._make_source(enabled=False)
+        project = self.create_project("fix-disabled")
+        response = self.post(
+            f"/v1/admin/storage-pool/projects/{project.id}/migrate",
+            json={"source_id": str(source.id)},
+            token=self._admin_token(),
+        )
+        self.assertEqual(409, response.status_code)
+        self.assertEqual(
+            0,
+            StorageTransfer.objects(
+                project=project, status__in=TransferStatus.ACTIVE
+            ).count(),
+        )
+
+    def test_location_fields_locked_once_source_has_data(self):
+        source = self._make_source(has_data=True)
+        for field, value in [
+            ("endpoint", "https://other.example.com"),
+            ("bucket", "other-bucket"),
+            ("region", "us-east-1"),
+            ("addressing_style", "virtual"),
+        ]:
+            response = self.put(
+                f"/v1/admin/storage-pool/sources/{source.id}",
+                json={field: value},
+                token=self._admin_token(),
+            )
+            self.assertEqual(409, response.status_code, field)
+        source.reload()
+        self.assertEqual("https://acc.r2.cloudflarestorage.com", source.endpoint)
+        self.assertEqual("cold", source.bucket)
+
+    def test_aborted_retry_rebuilds_manifest(self):
+        from app.modules.storage_pool import api as api_module
+
+        source = self._make_source()
+        project = self.create_project("fix-retry")
+        image = project.create_file("page.png")
+        image.update(save_name="page.png")
+        transfer = transfer_service.prepare(project, source, TransferDirection.IN)
+        self.assertEqual(1, transfer.total_objects)
+        transfer.update(set__status=TransferStatus.ABORTED)
+        # 中止后新增一个文件：旧逻辑重试时清单还是 1 个，切指针必再次 ABORT。
+        extra = project.create_file("page2.png")
+        extra.update(save_name="page2.png")
+        with patch.object(api_module, "_dispatch"):
+            response = self.post(
+                f"/v1/admin/storage-pool/transfers/{transfer.id}/retry",
+                token=self._admin_token(),
+            )
+        self.assertErrorEqual(response)
+        transfer.reload()
+        self.assertEqual(TransferStatus.PENDING, transfer.status)
+        self.assertEqual(2, transfer.total_objects)
+        self.assertEqual(
+            2,
+            StorageTransferObject.objects(transfer=transfer).count(),
+        )
+
+    def test_text_files_are_migrated_with_the_project(self):
+        from app.constants.file import FileType
+
+        project = self.create_project("fix-text")
+        image = project.create_file("page.png")
+        image.update(save_name="page.png")
+        text = project.create_file("note.txt")
+        text.update(save_name="note.txt", type=FileType.TEXT)
+        text.reload()
+        # 文本原文跟着项目指针走，和图片一致，不再搞特殊。
+        self.assertEqual(
+            str(image.storage_backend), str(text.storage_backend)
+        )
+        # TEXT 在搬运清单里，体积跟导出产物一起算。
+        kinds = transfer_service.enumerate_object_kinds(project)
+        self.assertIn("files/page.png", kinds)
+        self.assertIn("files/note.txt", kinds)
+
+    def test_transfer_list_filters_by_project(self):
+        source = self._make_source()
+        project_a = self.create_project("fix-filter-a")
+        project_b = self.create_project("fix-filter-b")
+        image = project_a.create_file("a.png")
+        image.update(save_name="a.png")
+        transfer_service.prepare(project_a, source, TransferDirection.IN)
+        transfer_service.prepare(project_b, source, TransferDirection.IN)
+
+        response = self.get(
+            f"/v1/admin/storage-pool/transfers?project_id={project_a.id}",
+            token=self._admin_token(),
+        )
+        self.assertErrorEqual(response)
+        self.assertEqual(1, len(response.json))
+        self.assertEqual(str(project_a.id), response.json[0]["project"]["id"])
+
+        # 格式不对的 id 给空列表，不 500。
+        response = self.get(
+            "/v1/admin/storage-pool/transfers?project_id=nope",
+            token=self._admin_token(),
+        )
+        self.assertErrorEqual(response)
+        self.assertEqual([], response.json)
+
+    def test_project_api_exposes_storage_location(self):
+        source = self._make_source()
+        project = self.create_project("fix-expose")
+        Project.objects(id=project.id).update(storage_source_id=source.id)
+        project.reload()
+        payload = project.to_api()
+        self.assertEqual(str(source.id), payload["storage_source_id"])
+        self.assertFalse(payload["storage_pool_locked"])
+
+
+class MoveAndLockTestCase(MoeAPITestCase):
+    """统一搬迁（move）与存储锁定。
+
+    move 一个接口包圆三种去向：默认→源、源→默认、源A→源B；
+    锁定后自动巡查跳过、手动三个接口全拦。
+    """
+
+    def setUp(self):
+        super().setUp()
+        # 按住入队：测试里 broker 不可用时 _dispatch 会退化为同步真跑，
+        # 假 backend 还没套上，任务会直接 FAILED。
+        from app.modules.storage_pool import api as api_module
+
+        patcher = patch.object(api_module, "_dispatch")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _admin_token(self):
+        admin = self.create_user("move-admin")
+        admin.update(set__admin=True)
+        admin.reload()
+        return admin.generate_token()
+
+    def _make_source(self, name="pool-a", **kwargs):
+        data = dict(
+            name=name,
+            endpoint="https://acc.r2.cloudflarestorage.com",
+            bucket="cold",
+            sub_path="storage/",
+            access_key_id="AKIAEXAMPLE1234",
+            secret_access_key="super-secret-value",
+        )
+        data.update(kwargs)
+        return StoragePoolSource(**data).save()
+
+    def _fresh_project(self, name):
+        project = self.create_project(name)
+        image = project.create_file("page.png")
+        image.update(save_name="page.png")
+        return project
+
+    def _patch_move(self, src_backend, dst_backend):
+        """搬运后端整体换成内存假件。
+
+        同一对 backend 在多轮 run 之间保持不变：第二、三轮的校验
+        读的是第一轮写进去的同一份内存，换新的空件会校验失败。
+        """
+        return patch.object(
+            transfer_service,
+            "_backends_for",
+            side_effect=lambda transfer: (src_backend, dst_backend),
+        )
+
+    def _run_all(self, transfer):
+        with self._patch_move(FakeBackend(), FakeBackend()), patch.object(
+            transfer_service, "_continue_later"
+        ):
+            transfer_service.run(str(transfer.id))
+            transfer_service.run(str(transfer.id))
+            transfer_service.run(str(transfer.id))
+
+    def test_move_default_to_source_and_back(self):
+        token = self._admin_token()
+        source = self._make_source()
+        project = self._fresh_project("move-roundtrip")
+
+        response = self.post(
+            f"/v1/admin/storage-pool/projects/{project.id}/move",
+            json={"target_source_id": str(source.id)},
+            token=token,
+        )
+        self.assertErrorEqual(response)
+        self._run_all(StorageTransfer.objects(project=project).first())
+        project.reload()
+        self.assertEqual(source.id, project.storage_source_id)
+
+        # 目标就是当前位置：拒绝，不建空任务。
+        response = self.post(
+            f"/v1/admin/storage-pool/projects/{project.id}/move",
+            json={"target_source_id": str(source.id)},
+            token=token,
+        )
+        self.assertEqual(409, response.status_code)
+
+        # 空目标 = 搬回默认存储。
+        response = self.post(
+            f"/v1/admin/storage-pool/projects/{project.id}/move",
+            json={"target_source_id": ""},
+            token=token,
+        )
+        self.assertErrorEqual(response)
+        self._run_all(StorageTransfer.objects(project=project).order_by("-create_time").first())
+        project.reload()
+        self.assertIsNone(project.storage_source_id)
+
+        # 已在默认还要回默认：拒绝。
+        response = self.post(
+            f"/v1/admin/storage-pool/projects/{project.id}/move",
+            json={},
+            token=token,
+        )
+        self.assertEqual(409, response.status_code)
+
+    def test_move_source_to_source_switches_pointer(self):
+        token = self._admin_token()
+        source_a = self._make_source("pool-a")
+        source_b = self._make_source("pool-b")
+        project = self._fresh_project("move-direct")
+        Project.objects(id=project.id).update(storage_source_id=source_a.id)
+        project.reload()
+        source_a.update(set__has_data=True)
+
+        response = self.post(
+            f"/v1/admin/storage-pool/projects/{project.id}/move",
+            json={"target_source_id": str(source_b.id)},
+            token=token,
+        )
+        self.assertErrorEqual(response)
+        transfer = StorageTransfer.objects(project=project).first()
+        self.assertEqual(TransferDirection.MOVE, transfer.direction)
+        self.assertEqual(source_a.id, transfer.source.id)
+        self.assertEqual(source_b.id, transfer.target_source.id)
+
+        src_backend, dst_backend = FakeBackend(), FakeBackend()
+        with self._patch_move(src_backend, dst_backend), patch.object(
+            transfer_service, "_continue_later"
+        ):
+            transfer_service.run(str(transfer.id))
+            transfer_service.run(str(transfer.id))
+            transfer_service.run(str(transfer.id))
+        transfer.reload()
+        self.assertEqual(TransferStatus.DONE, transfer.status)
+        project.reload()
+        self.assertEqual(source_b.id, project.storage_source_id)
+        # 两边 has_data 都重算：A 搬空解锁、B 进项目标记。
+        source_a.reload()
+        source_b.reload()
+        self.assertFalse(source_a.has_data)
+        self.assertTrue(source_b.has_data)
+
+    def test_lock_blocks_manual_and_scan(self):
+        token = self._admin_token()
+        source = self._make_source()
+        project = self._fresh_project("move-locked")
+
+        response = self.post(
+            f"/v1/admin/storage-pool/projects/{project.id}/lock",
+            json={"locked": True},
+            token=token,
+        )
+        self.assertErrorEqual(response)
+        project.reload()
+        self.assertTrue(project.storage_pool_locked)
+        self.assertTrue(project.to_api()["storage_pool_locked"])
+
+        for url, body in [
+            (
+                f"/v1/admin/storage-pool/projects/{project.id}/migrate",
+                {"source_id": str(source.id)},
+            ),
+            (
+                f"/v1/admin/storage-pool/projects/{project.id}/move",
+                {"target_source_id": str(source.id)},
+            ),
+            (
+                f"/v1/admin/storage-pool/projects/{project.id}/restore",
+                {},
+            ),
+        ]:
+            response = self.post(url, json=body, token=token)
+            self.assertEqual(409, response.status_code, url)
+        self.assertEqual(0, StorageTransfer.objects(project=project).count())
+
+        # 自动巡查也跳过锁定的项目。
+        StoragePoolSetting.get().update(set__scan_enabled=True)
+        Project.objects(id=project.id).update(
+            set__edit_time=datetime.datetime.utcnow()
+            - datetime.timedelta(days=200)
+        )
+        with patch.object(tasks_module.storage_pool_run, "delay"):
+            tasks_module.storage_pool_scan()
+        self.assertEqual(0, StorageTransfer.objects(project=project).count())
+
+        # 解锁后恢复正常。
+        response = self.post(
+            f"/v1/admin/storage-pool/projects/{project.id}/lock",
+            json={"locked": False},
+            token=token,
+        )
+        self.assertErrorEqual(response)
+        response = self.post(
+            f"/v1/admin/storage-pool/projects/{project.id}/move",
+            json={"target_source_id": str(source.id)},
+            token=token,
+        )
+        self.assertErrorEqual(response)
+        self.assertEqual(1, StorageTransfer.objects(project=project).count())
+
+    def test_lock_refused_while_transfer_active(self):
+        token = self._admin_token()
+        source = self._make_source()
+        project = self._fresh_project("move-lock-busy")
+        transfer_service.prepare(project, source, TransferDirection.IN)
+
+        response = self.post(
+            f"/v1/admin/storage-pool/projects/{project.id}/lock",
+            json={"locked": True},
+            token=token,
+        )
+        self.assertEqual(409, response.status_code)
+        project.reload()
+        self.assertFalse(project.storage_pool_locked)

@@ -247,7 +247,15 @@ class S3Transfer:
     def __init__(self, src, dst):
         self.src = src
         self.dst = dst
-        self._same_endpoint = self._endpoint_of(src) == self._endpoint_of(dst)
+        src_endpoint = self._endpoint_of(src)
+        dst_endpoint = self._endpoint_of(dst)
+        # 任一端拿不到 endpoint（本地存储、阿里云分支）都视为不同：
+        # None == None 会误判为“同机房”，白白试一次必失败的服务端复制。
+        self._same_endpoint = (
+            src_endpoint is not None
+            and dst_endpoint is not None
+            and src_endpoint == dst_endpoint
+        )
         # 同一个单例就没什么可搬的，用它兜住「源和目的是同一个桶」的配置错误。
         self._same_backend = src is dst
 

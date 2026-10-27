@@ -59,6 +59,15 @@ class MigrateSchema(DefaultSchema):
     source_id = fields.Str(required=True)
 
 
+class MoveSchema(DefaultSchema):
+    # 目标来源 id；不传/空/"default" = 搬回默认存储。
+    target_source_id = fields.Str(load_default="")
+
+
+class LockSchema(DefaultSchema):
+    locked = fields.Boolean(load_default=True)
+
+
 class StoragePoolSettingSchema(DefaultSchema):
     """开关与配额的局部更新。字段都可选，只改传了的那个。
 

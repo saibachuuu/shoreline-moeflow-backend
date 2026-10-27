@@ -172,6 +172,24 @@ def create_thumbnail_task(self, image_id: str, image_path=None):
                 image_path = os.path.join(
                     STORAGE_PATH, oss_file_prefix, image.save_name
                 )
+                # 混搭兼容：默认存储是本地盘、但项目已迁入池时，
+                # 原图在池里而不在磁盘上。缺失就从项目当前后端拉一份，
+                # 否则 LOCAL + 存储池的组合缩略图永远 FAILED。
+                if not os.path.isfile(image_path):
+                    tmp = tempfile.NamedTemporaryFile(delete=False)
+                    downloaded_tmp = tmp.name
+                    try:
+                        image.download_real_file(local_path=tmp.name)
+                    except (FileNotExistError, SourceFileNotExist, NoSuchKey):
+                        _set_thumbnail_state(
+                            image,
+                            ThumbnailStatus.FAILED,
+                            "source file is missing",
+                            save_name=fenced_save_name,
+                        )
+                        return f"失败：创建缩略图失败，原图不存在 {image_id}"
+                    image_path = tmp.name
+                    download_ms = round((time.monotonic() - started_at) * 1000)
 
         if not os.path.isfile(image_path):
             _set_thumbnail_state(
