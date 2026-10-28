@@ -358,9 +358,19 @@ class StoragePoolLock(Document):
             return False
 
     @classmethod
-    def release(cls, project_id):
+    def release(cls, project_id, owner=None, transfer_id=None):
+        """释放锁。传了 ``owner`` / ``transfer_id`` 就只删自己那份。
+
+        早期版本无条件 ``delete()``：租约过期、被另一个 worker 接管之后，
+        迟到的 ``finally`` 会把别人的锁删掉，两个 worker 于是同时进临界区。
+        """
+        query = cls.objects(pk=project_id)
+        if owner is not None:
+            query = query.filter(owner=owner)
+        if transfer_id is not None:
+            query = query.filter(transfer_id=transfer_id)
         try:
-            cls.objects(pk=project_id).delete()
+            query.delete()
         except Exception:  # pragma: no cover - 释放失败不该盖住真正的错误
             logger.exception("释放存储池锁失败：project=%s", project_id)
 

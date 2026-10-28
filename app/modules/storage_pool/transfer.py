@@ -26,6 +26,7 @@ from app.models.project import Project
 from .backend import PoolBackend, S3Transfer
 from .constants import (
     CONTINUE_COUNTDOWN,
+    DELETE_BATCH_SIZE,
     MAX_STALLS,
     PROBE_OBJECT_NAME,
     StorageObjectKind,
@@ -74,7 +75,10 @@ def enumerate_object_kinds(project) -> dict:
                 else StorageObjectKind.ORIGINAL
             )
     # 导出产物：outputs/<output.id>/<file_name>（含 txt 导出，一起搬）。
-    for output in Output.objects(project=project, file_name__ne=""):
+    # 用 ``$gt: ""`` 而不是 ``$ne: ""``：后者会把「字段缺失」的老文档
+    # 也算进来，枚举出 ``outputs/<id>/`` 这种空文件名的 key，搬它必然 404，
+    # 于是一个历史文档就能把整趟迁移判成失败。
+    for output in Output.objects(project=project, file_name__gt=""):
         kinds[output_prefix + str(output.id) + "/" + output.file_name] = (
             StorageObjectKind.OUTPUT
         )
@@ -157,15 +161,26 @@ def prepare(project, source, direction=TransferDirection.IN, target_source=None)
 
 
 def _build_object_rows(transfer, kinds) -> None:
-    """按 ``{key: kind}`` 落逐对象行。建任务与 ABORTED 重试共用。"""
-    for key, kind in kinds.items():
-        StorageTransferObject(
-            transfer=transfer,
-            src_key=key,
-            dst_key=key,
-            kind=kind,
-            status=TransferObjectStatus.PENDING,
-        ).save()
+    """按 ``{key: kind}`` 落逐对象行。建任务与 ABORTED 重试共用。
+
+    一次 ``insert`` 而不是逐条 ``save``：几千个对象时逐条往返能把建任务
+    这一步本身拖成好几秒，而它就跑在请求线程里。
+    """
+    if not kinds:
+        return
+    StorageTransferObject.objects.insert(
+        [
+            StorageTransferObject(
+                transfer=transfer,
+                src_key=key,
+                dst_key=key,
+                kind=kind,
+                status=TransferObjectStatus.PENDING,
+            )
+            for key, kind in kinds.items()
+        ],
+        load_bulk=False,
+    )
 
 
 # ----------------------------------------------------------------------
@@ -246,8 +261,13 @@ def run(transfer_id):
         if not ok:
             _fail(transfer, error)
             return f"失败：{error}"
-        switched, error = _switch_pointer(transfer, project, source)
+        switched, error, retryable = _switch_pointer(transfer, project, source)
         if not switched:
+            if retryable:
+                # 锁被别的任务占着：这是排期问题，不是数据问题。判 ABORTED
+                # 会把任务挂在那儿等人来点重试，自动巡查等于白跑一趟。
+                _continue_later(transfer.id)
+                return f"稍后重试：{error}"
             transfer.update(
                 set__status=TransferStatus.ABORTED,
                 set__last_error=error,
@@ -258,9 +278,29 @@ def run(transfer_id):
 
     if transfer.status == TransferStatus.SWITCHED:
         _delete_source_objects(transfer, src)
+        # 源端没删干净就不能标 DONE：DONE 之后没有任何流程会再回来删它，
+        # 那些对象会永久占据源桶，扩容等于白做。留在 SWITCHED 反复重试，
+        # 连续失败到 MAX_STALLS 才放弃，并把残留数量写进 last_error 留痕。
+        remaining = StorageTransferObject.objects(
+            transfer=transfer, status=TransferObjectStatus.VERIFIED
+        ).count()
+        if remaining:
+            stalls = (transfer.stall_count or 0) + 1
+            if stalls >= MAX_STALLS:
+                transfer.update(
+                    set__status=TransferStatus.DONE,
+                    set__finish_time=datetime.datetime.utcnow(),
+                    set__last_error=f"源端仍有 {remaining} 个对象未删除，需人工清理",
+                )
+                _refresh_source_has_data(source)
+                return f"完成，但源端残留 {remaining} 个对象"
+            transfer.update(set__stall_count=stalls)
+            _continue_later(transfer.id)
+            return f"进行中：源端还剩 {remaining} 个对象待删除，已安排下一轮"
         transfer.update(
             set__status=TransferStatus.DONE,
             set__finish_time=datetime.datetime.utcnow(),
+            set__stall_count=0,
         )
         _refresh_source_has_data(source)
         # 直转搬空了源、填满了目标：两边的 has_data 都要重算，
@@ -273,6 +313,52 @@ def run(transfer_id):
         return "成功：迁移完成"
 
     return f"未知状态：{transfer.status}"
+
+
+def _recompute_counters(transfer):
+    """按逐对象行的最终状态重算计数（幂等）。
+
+    早期版本在搬运循环里逐对象 ``$inc``：校验失败重试时同一个对象会被
+    加两次，进度条能超 100%、``breakdown`` 也跟着虚高。改成重算之后，
+    重试、并发推进、ABORTED 重建清单都收敛到同一个数。
+    """
+    output_prefix = current_app.config["OSS_OUTPUT_PREFIX"]
+    copied_objects = 0
+    copied_bytes = 0
+    origin_bytes = 0
+    output_bytes = 0
+    rows = StorageTransferObject.objects(
+        transfer=transfer,
+        status__in=[
+            TransferObjectStatus.COPIED,
+            TransferObjectStatus.VERIFIED,
+            TransferObjectStatus.SOURCE_DELETED,
+        ],
+    )
+    for row in rows:
+        size = row.size or 0
+        copied_objects += 1
+        copied_bytes += size
+        # 文本原文的 key 也在 files/ 下，仅靠前缀分不出；建任务时写死的
+        # kind 说了算，旧任务没有 kind 才按前缀回退。
+        kind = row.kind or (
+            StorageObjectKind.OUTPUT
+            if row.src_key.startswith(output_prefix)
+            else StorageObjectKind.ORIGINAL
+        )
+        if kind in (StorageObjectKind.OUTPUT, StorageObjectKind.TEXT):
+            output_bytes += size
+        else:
+            origin_bytes += size
+    StorageTransfer.objects(id=transfer.id).update_one(
+        set__copied_objects=copied_objects,
+        set__copied_bytes=copied_bytes,
+        set__breakdown=TransferBreakdown(
+            origin_bytes=origin_bytes,
+            output_bytes=output_bytes,
+            object_count=copied_objects,
+        ),
+    )
 
 
 def _copy_objects(transfer, src, dst, source):
@@ -293,49 +379,34 @@ def _copy_objects(transfer, src, dst, source):
         transfer=transfer, status=TransferObjectStatus.PENDING
     ).order_by("id")
 
-    output_prefix = current_app.config["OSS_OUTPUT_PREFIX"]
-    # 旧任务可能没有 breakdown（字段是后加的），补一个空壳再累加，
-    # 否则 $inc 落在 null 上会直接报错。
-    if transfer.breakdown is None:
-        StorageTransfer.objects(id=transfer.id).update(
-            set__breakdown=TransferBreakdown()
-        )
-
     moved = 0
     for row in pending_qs.limit(limit):
         try:
             size, etag = S3Transfer(src, dst).transfer(row.src_key, size=row.size)
-            moved += 1
-            row.update(
-                set__status=TransferObjectStatus.COPIED,
-                set__size=size,
-                set__etag=etag or "",
-                set__last_error="",
-            )
-            counters = {
-                "inc__copied_objects": 1,
-                "inc__copied_bytes": size,
-                "inc__breakdown__object_count": 1,
-            }
-            # 文本原文的 key 也在 files/ 下，仅靠前缀分不出；
-            # 建任务时写死的 kind 说了算，旧任务没有 kind 才按前缀回退。
-            kind = row.kind or (
-                StorageObjectKind.OUTPUT
-                if row.src_key.startswith(output_prefix)
-                else StorageObjectKind.ORIGINAL
-            )
-            if kind in (StorageObjectKind.OUTPUT, StorageObjectKind.TEXT):
-                counters["inc__breakdown__output_bytes"] = size
-            else:
-                counters["inc__breakdown__origin_bytes"] = size
-            StorageTransfer.objects(id=transfer.id).update_one(**counters)
         except Exception as error:
             logger.exception("对象搬运失败：%s", row.src_key)
-            row.update(
+            StorageTransferObject.objects(
+                id=row.id, status=TransferObjectStatus.PENDING
+            ).update_one(
                 set__status=TransferObjectStatus.FAILED,
                 set__last_error=str(error)[:500],
                 inc__attempts=1,
             )
+            continue
+        # 原子推进：并发 worker 或重放的续跑里，只有一个能把这一行从
+        # PENDING 拿走，``moved`` 因此不会被算两遍。
+        claimed = StorageTransferObject.objects(
+            id=row.id, status=TransferObjectStatus.PENDING
+        ).update_one(
+            set__status=TransferObjectStatus.COPIED,
+            set__size=size,
+            set__etag=etag or "",
+            set__last_error="",
+        )
+        if claimed:
+            moved += 1
+
+    _recompute_counters(transfer)
 
     pending = StorageTransferObject.objects(
         transfer=transfer, status=TransferObjectStatus.PENDING
@@ -399,16 +470,24 @@ def _verify_objects(transfer, dst):
 
 
 def _switch_pointer(transfer, project, source):
-    """★ 切指针。锁内二次确认清单，再改 ``Project.storage_source_id``。"""
+    """★ 切指针。锁内二次确认清单，再改 ``Project.storage_source_id``。
+
+    返回 ``(是否切换成功, 原因, 可否直接重试)``。第三项用来区分两件事：
+    「清单过期」要重建（走 ABORTED + 重试按钮），「锁被别人占着」只是排期
+    问题，安排下一轮即可，不该把任务判死等人来点。
+    """
     project.reload()
     snapshot = transfer.snapshot_edit_time
     if snapshot and project.edit_time and project.edit_time != snapshot:
-        return False, "搬运期间项目文件有变更，已中止（可重试）"
+        return False, "搬运期间项目文件有变更，已中止（可重试）", False
 
+    # owner 必须能区分「谁持有的锁」：所有人都写死 "transfer" 时，迟到的
+    # 释放分不清自己那份，会删掉别人接管的租约。
+    owner = f"transfer:{transfer.id}"
     if not StoragePoolLock.acquire(
-        project.id, transfer_id=transfer.id, owner="transfer"
+        project.id, transfer_id=transfer.id, owner=owner
     ):
-        return False, "项目正被另一个迁移任务锁定，稍后重试"
+        return False, "项目正被另一个迁移任务锁定，稍后重试", True
 
     try:
         project.reload()
@@ -418,9 +497,9 @@ def _switch_pointer(transfer, project, source):
         )
         missing = current_keys - recorded
         if missing:
-            return False, f"清单不一致：新增 {len(missing)} 个对象未搬运，已中止"
+            return False, f"清单不一致：新增 {len(missing)} 个对象未搬运，已中止", False
         if snapshot and project.edit_time and project.edit_time != snapshot:
-            return False, "搬运期间项目文件有变更，已中止（可重试）"
+            return False, "搬运期间项目文件有变更，已中止（可重试）", False
 
         target_id = None if transfer.direction == TransferDirection.OUT else source.id
         if transfer.direction == TransferDirection.MOVE:
@@ -435,48 +514,64 @@ def _switch_pointer(transfer, project, source):
         if transfer.direction == TransferDirection.IN:
             if current_id is not None and str(current_id) == str(target_id):
                 transfer.update(set__status=TransferStatus.SWITCHED)
-                return True, ""
+                return True, "", False
             if current_id is not None:
-                return False, "项目已被其他任务迁移，已中止"
+                return False, "项目已被其他任务迁移，已中止", False
         elif transfer.direction == TransferDirection.MOVE:
             if current_id is not None and str(current_id) == str(target_id):
                 transfer.update(set__status=TransferStatus.SWITCHED)
-                return True, ""
+                return True, "", False
             # 直转要求项目还在源上：中途被回迁/转走就停下，
             # 否则会把一份旧桶的数据切成新指针。
             if current_id is None or str(current_id) != str(source.id):
-                return False, "项目已被其他任务迁移，已中止"
+                return False, "项目已被其他任务迁移，已中止", False
         else:
             if current_id is None:
                 transfer.update(set__status=TransferStatus.SWITCHED)
-                return True, ""
+                return True, "", False
             if str(current_id) != str(source.id):
-                return False, "项目已被其他任务迁移，已中止"
+                return False, "项目已被其他任务迁移，已中止", False
         Project.objects(id=project.id).update(
             set__storage_source_id=target_id,
             set__storage_source_switched_time=datetime.datetime.utcnow(),
         )
         transfer.update(set__status=TransferStatus.SWITCHED)
-        return True, ""
+        return True, "", False
     finally:
-        StoragePoolLock.release(project.id)
+        StoragePoolLock.release(project.id, owner=owner)
 
 
 def _delete_source_objects(transfer, src):
-    """删源端对象。只删「已校验」的行 —— 没校验过的宁可留着。"""
-    rows = StorageTransferObject.objects(
-        transfer=transfer, status=TransferObjectStatus.VERIFIED
+    """删源端对象。只删「已校验」的行 —— 没校验过的宁可留着。
+
+    按目录、每 1000 个一批发 ``delete_objects``：逐条删时 2000 个对象就是
+    2000 次往返，worker 还没跑完就先超时，源端对象一直留着，扩容等于没扩。
+    """
+    rows = list(
+        StorageTransferObject.objects(
+            transfer=transfer, status=TransferObjectStatus.VERIFIED
+        )
     )
+    groups = {}
     for row in rows:
-        try:
-            path, filename = (
-                row.src_key.rsplit("/", 1) if "/" in row.src_key else ("", row.src_key)
-            )
-            src.delete(path + "/" if path else "", filename)
-            row.update(set__status=TransferObjectStatus.SOURCE_DELETED)
-        except Exception:
-            # 删源失败不影响正确性（对象只是多占一份空间），记日志继续。
-            logger.warning("删除源端对象失败：%s", row.src_key, exc_info=True)
+        path, _, name = row.src_key.rpartition("/")
+        groups.setdefault(path + "/" if path else "", []).append((name, row.id))
+
+    for path, items in groups.items():
+        for start in range(0, len(items), DELETE_BATCH_SIZE):
+            batch = items[start : start + DELETE_BATCH_SIZE]
+            try:
+                src.delete(path, [name for name, _ in batch])
+            except Exception:
+                # 删源失败不影响正确性（对象只是多占一份空间），行保持
+                # VERIFIED，下一轮还能再试。
+                logger.warning(
+                    "批量删除源端对象失败：%s（%d 个）", path, len(batch), exc_info=True
+                )
+                continue
+            StorageTransferObject.objects(
+                id__in=[row_id for _, row_id in batch]
+            ).update(set__status=TransferObjectStatus.SOURCE_DELETED)
 
 
 def _refresh_source_has_data(source):
