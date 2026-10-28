@@ -4,11 +4,24 @@ on:
   push:
     branches: [ main ]
   pull_request:
+    paths:
+      - 'app/**'
+      - 'tests/**'
+      - 'requirements*.txt'
+      - 'pytest.ini'
+      - 'Makefile'
+      - '.github/workflows/check-pr.yml'
   workflow_dispatch:
+
+# 同一个 PR 连续推送时取消上一轮：省 runner 时间，也省掉一堆过时的红叉。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   static-check:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
 
     steps:
     - uses: actions/checkout@v4
@@ -22,27 +35,42 @@ jobs:
 
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
     - uses: actions/checkout@v4
-    - uses: hoverkraft-tech/compose-action@v2.0.1
-      with:
-        compose-file: tests/deps.yaml
     - uses: actions/setup-python@v5
       with:
         python-version: '3.12'
-        cache: 'pip'
-    - run: |
-        sudo apt-get install --yes libjpeg-dev libz-dev python3-dev libfreetype-dev build-essential
-    - run: pip install -r requirements-dev.txt
-    - run: cp -rv .env.test.sample .env.test
-    - uses: pavelzw/pytest-action@v2
+    - uses: astral-sh/setup-uv@v5
       with:
-        job-summary: true
-        verbose: true
-        emoji: false
+        enable-cache: true
+
+    # 这几个 -dev 包不能删：crcmod 1.7 没有预编译 wheel，装它必须现场编译，
+    # 去掉 build-essential / python3-dev 会让 pip install 直接失败。
+    - run: |
+        sudo apt-get update
+        sudo apt-get install --yes libjpeg-dev libz-dev python3-dev libfreetype-dev build-essential
+
+    - run: uv pip install --system -r requirements-dev.txt
+    - run: cp -rv .env.test.sample .env.test
+
+    # 测试全程用 mongomock + 内存 broker，没有任何 .delay()/apply_async 调用，
+    # 不需要 rabbitmq 容器，也就不需要 compose-action 那几十秒。
+    - name: Run tests (pull request)
+      if: github.ref != 'refs/heads/main'
+      run: pytest -n auto
+
+    # 覆盖率和 HTML 报告比裸跑慢将近一倍（实测 20s -> 38s），只在 main 上生成。
+    - name: Run tests with coverage (main)
+      if: github.ref == 'refs/heads/main'
+      run: >
+        pytest -n auto
+        --cov=app --cov-report=term --cov-report=xml:cov.xml
+        --html=report.html --self-contained-html
+
     - name: save test report
       uses: actions/upload-artifact@v4
-      if: always()
+      if: always() && hashFiles('report.html') != ''
       with:
         name: report.html
         path: report.html
