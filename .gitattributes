@@ -1,0 +1,23 @@
+# 全仓库统一 LF：仓库内与工作区一致，避免 Windows 编辑器把 CRLF 带回来。
+# 2026-10-28：转换前有 15 个 CRLF 文件（11 个 .py），其余 318 个本来就是 LF。
+* text=auto eol=lf
+
+# 显式二进制，永远不做行尾转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.bmp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.mo binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.pdf binary
+*.psd binary
