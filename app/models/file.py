@@ -709,11 +709,13 @@ class File(Document):
 
     @property
     def storage_backend(self):
-        """原图所在的后端：默认存储，或本项目指向的存储来源。
+        """文件原对象所在的后端：默认存储，或本项目指向的存储来源。
 
-        只有 IMAGE 走存储池。TEXT（文本原文）永远在默认存储，不参与
-        迁移（见存储池 transfer.enumerate_objects），所以这里直接返回
-        全局 oss —— 否则迁入池后旧文本全部 404（读写分叉）。
+        原图（IMAGE）与文本原文（TEXT）都参与迁移，两者的 key 都在
+        ``files/`` 下，所以这里**不按类型区分** —— 跟着项目的来源走即可。
+
+        派生图（cover / resample / proofread）不搬，由
+        :meth:`_processed_image_url` 显式使用全局 ``oss``。
 
         注册表为空（存储池模块未安装/未启用）时**直接返回全局 oss**，
         连项目 id 都不读 —— 否则每次序列化都要为这一行多查一次项目，

@@ -56,8 +56,9 @@ Project.storage_source_id = <来源 id>  → 存储池里的那个来源
 
 | 搬 | 不搬 |
 |---|---|
-| 原图 `files/<save_name>`（仅 IMAGE） | 派生图 `cover-*` / `resample-*` / `proofread-*` |
-| 导出产物 `outputs/<id>/<file_name>` | 文本原文（TEXT）、头像 |
+| 原图 `files/<save_name>`（IMAGE） | 派生图 `cover-*` / `resample-*` / `proofread-*` |
+| 文本原文 `files/<save_name>`（TEXT） | 头像 |
+| 导出产物 `outputs/<id>/<file_name>` | |
 
 派生图永远留在默认存储 —— `File._processed_image_url` 里显式写死走全局 `oss`，
 误路由会让全站缩略图 404。
