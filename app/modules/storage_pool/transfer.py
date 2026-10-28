@@ -484,9 +484,7 @@ def _switch_pointer(transfer, project, source):
     # owner 必须能区分「谁持有的锁」：所有人都写死 "transfer" 时，迟到的
     # 释放分不清自己那份，会删掉别人接管的租约。
     owner = f"transfer:{transfer.id}"
-    if not StoragePoolLock.acquire(
-        project.id, transfer_id=transfer.id, owner=owner
-    ):
+    if not StoragePoolLock.acquire(project.id, transfer_id=transfer.id, owner=owner):
         return False, "项目正被另一个迁移任务锁定，稍后重试", True
 
     try:
@@ -504,9 +502,7 @@ def _switch_pointer(transfer, project, source):
         target_id = None if transfer.direction == TransferDirection.OUT else source.id
         if transfer.direction == TransferDirection.MOVE:
             # 直转的目标是另一池源，不在 source 上。
-            target_id = (
-                transfer.target_source.id if transfer.target_source else None
-            )
+            target_id = transfer.target_source.id if transfer.target_source else None
         # 方向守卫：两个反向任务并发时，后切的那个必须停下来，
         # 否则 IN/OUT 互相覆盖，数据在两桶之间来回倒。
         project.reload()

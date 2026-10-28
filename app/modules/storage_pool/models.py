@@ -187,7 +187,9 @@ class StorageTransfer(Document):
         source = self.source
         # MOVE 时 source=源、target_source=目标；OUT 时目标是默认存储（None）；
         # IN 时目标就是 source，本字段与 source 相同。
-        target = self.target_source if self.direction == TransferDirection.MOVE else None
+        target = (
+            self.target_source if self.direction == TransferDirection.MOVE else None
+        )
         if self.direction == TransferDirection.IN:
             target = source
         return {

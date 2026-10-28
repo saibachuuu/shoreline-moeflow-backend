@@ -100,9 +100,7 @@ def _get_project(project_id):
 def _require_unlocked(project):
     """锁定的项目连手动也不许挪：先解锁，再搬迁。"""
     if getattr(project, "storage_pool_locked", False):
-        raise TransferNotAllowedError(
-            gettext("该项目已锁定存储位置，请先解锁再搬迁")
-        )
+        raise TransferNotAllowedError(gettext("该项目已锁定存储位置，请先解锁再搬迁"))
 
 
 class SourceListAPI(MoeAPIView):
@@ -187,7 +185,9 @@ class SourceAPI(MoeAPIView):
         # 位置四要素 + 子路径：已有项目迁入后改任何一个都等于让那些项目失联。
         if source.has_data:
             for field in ("endpoint", "bucket", "region", "addressing_style"):
-                if field in data and (data[field] or "") != (getattr(source, field) or ""):
+                if field in data and (data[field] or "") != (
+                    getattr(source, field) or ""
+                ):
                     raise SubPathLockedError()
         if "sub_path" in data:
             new_sub_path = normalize_sub_path(data["sub_path"])
@@ -207,8 +207,8 @@ class SourceAPI(MoeAPIView):
             location_changed = location_changed or (
                 normalize_sub_path(data["sub_path"]) != source.normalized_sub_path()
             )
-        verify_changed = (
-            "verify_ssl" in data and bool(data["verify_ssl"]) != bool(source.verify_ssl)
+        verify_changed = "verify_ssl" in data and bool(data["verify_ssl"]) != bool(
+            source.verify_ssl
         )
 
         for key, value in data.items():
@@ -380,9 +380,7 @@ class ProjectMoveAPI(MoeAPIView):
         if raw_target.lower() == "default":
             raw_target = ""
 
-        current_id = (
-            str(project.storage_source_id) if project.storage_source_id else ""
-        )
+        current_id = str(project.storage_source_id) if project.storage_source_id else ""
         # 目标是默认存储：已在默认就不用动，否则回迁。
         if not raw_target:
             if not current_id:
@@ -390,9 +388,7 @@ class ProjectMoveAPI(MoeAPIView):
             source = StoragePoolSource.objects(id=project.storage_source_id).first()
             if source is None:
                 raise SourceNotFoundError()
-            transfer = transfer_service.prepare(
-                project, source, TransferDirection.OUT
-            )
+            transfer = transfer_service.prepare(project, source, TransferDirection.OUT)
             _dispatch(transfer)
             return transfer.to_api()
 
@@ -408,9 +404,7 @@ class ProjectMoveAPI(MoeAPIView):
             origin = target
             extra = {}
         else:
-            origin = StoragePoolSource.objects(
-                id=project.storage_source_id
-            ).first()
+            origin = StoragePoolSource.objects(id=project.storage_source_id).first()
             if origin is None:
                 raise SourceNotFoundError()
             direction = TransferDirection.MOVE
@@ -440,9 +434,12 @@ class ProjectLockAPI(MoeAPIView):
         data = self.get_json(LockSchema())
         project = _get_project(project_id)
         locked = bool(data.get("locked", True))
-        if locked and StorageTransfer.objects(
-            project=project, status__in=TransferStatus.ACTIVE
-        ).first():
+        if (
+            locked
+            and StorageTransfer.objects(
+                project=project, status__in=TransferStatus.ACTIVE
+            ).first()
+        ):
             raise TransferNotAllowedError(
                 gettext("该项目有正在进行的迁移任务，请等待任务结束后再锁定")
             )

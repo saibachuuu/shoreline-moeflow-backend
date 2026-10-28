@@ -269,12 +269,9 @@ class TeamAPI(MoeAPIView):
             )
         # 校对稿烤图标记设置同样只允许团队创建者修改。
         if (
-            "proofread_marker_enabled" in data
-            or "proofread_marker_opacity" in data
+            "proofread_marker_enabled" in data or "proofread_marker_opacity" in data
         ) and not IdentityPermissionService.is_team_creator(self.current_user, team):
-            raise NoPermissionError(
-                gettext("只有团队创建者可以修改校对稿标记设置")
-            )
+            raise NoPermissionError(gettext("只有团队创建者可以修改校对稿标记设置"))
         if "archive_api_keys" in data:
             data["archive_api_keys"] = _apply_archive_api_keys(
                 team, data["archive_api_keys"]
