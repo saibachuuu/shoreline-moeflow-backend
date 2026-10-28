@@ -1,4 +1,3 @@
-PYTEST_COV_ARGS =
 
 # Use the installed Python 3.12 interpreter. Override for another platform
 # with e.g. `make PYTHON_BIN=python3.12`.
@@ -40,18 +39,21 @@ deps-tree:
 test: test_all
 
 test_all:
-	$(PYTEST_BIN) $(PYTEST_COV_ARGS)
+	$(PYTEST_BIN)
 
+# 并行：核数交给 xdist 自己数（CI 是 4 核，本地核数不同也不用改）
 test_all_parallel:
-	# TODO: fix this
-	$(PYTEST_BIN) -n 8 $(PYTEST_COV_ARGS)
+	$(PYTEST_BIN) -n auto
+
+# 覆盖率与 HTML 报告：比裸跑慢将近一倍（实测 20s -> 38s），只在需要时手动跑
+test_cov:
+	$(PYTEST_BIN) --cov=app --cov-report=term --cov-report=xml:cov.xml --html=report.html --self-contained-html
 
 test_single:
-	$(PYTEST_BIN) tests/api/test_file_api.py $(PYTEST_COV_ARGS)
+	$(PYTEST_BIN) tests/api/test_file_api.py
 
 test_logging:
-	#--capture=no
-	$(PYTEST_BIN) --capture=sys --log-cli-level=DEBUG tests/base/test_logging.py $(PYTEST_COV_ARGS)
+	$(PYTEST_BIN) --capture=sys --log-cli-level=DEBUG tests/base/test_logging.py
 
 babel-update-po:
 	$(PYBABEL_BIN) extract -F babel.cfg -k lazy_gettext -k hardcode_text -o messages.pot app

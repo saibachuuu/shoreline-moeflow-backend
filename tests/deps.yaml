@@ -1,5 +1,7 @@
 # Test dependencies for moeflow-backend
-# Database tests run in-memory via mongomock; rabbitmq is maintained for celery broker.
+# Database tests run in-memory via mongomock. CI no longer starts rabbitmq:
+# no test calls .delay()/apply_async, and .env.test.sample points CELERY_BROKER_URL
+# at memory://. Kept for anyone running celery tasks locally against a broker.
 version: '3.3'
 services:
   moeflow-rabbitmq:
