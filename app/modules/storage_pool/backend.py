@@ -12,6 +12,7 @@ import logging
 import os
 import tempfile
 from io import BytesIO
+from urllib.parse import quote
 
 import boto3
 from botocore.config import Config as BotoConfig
@@ -22,6 +23,21 @@ from app.constants.storage import BucketStyle
 logger = logging.getLogger(__name__)
 
 _S3_NOT_FOUND_CODES = {"404", "NoSuchKey", "NotFound"}
+
+
+def _transfer_temp_dir():
+    """流式搬运的落盘目录。
+
+    默认跟随系统临时目录；``POOL_TRANSFER_TEMP_DIR`` 可以指到数据盘。
+    小机器的 ``/tmp`` 常常是 tmpfs（吃内存），搬一个几百 MB 的原图就能把
+    整台机器顶到 OOM。
+    """
+    try:
+        from flask import current_app
+
+        return current_app.config.get("POOL_TRANSFER_TEMP_DIR") or None
+    except Exception:  # pragma: no cover - 没有 app context 时退回系统默认
+        return None
 
 
 def _is_not_found(error) -> bool:
@@ -93,7 +109,9 @@ class PoolBackend:
         **kwargs,
     ):
         if self.oss_via_cdn:
-            return (oss_domain or self.oss_domain) + path + filename
+            # 与全局 OSS 的 CDN 分支保持一致：文件名要先 quote，
+            # 否则中文/空格文件名拼出来的 URL 404。
+            return (oss_domain or self.oss_domain) + path + quote(filename)
         params = {
             "Bucket": self.bucket_name,
             "Key": self._to_object_key(path + filename),
@@ -265,16 +283,51 @@ class S3Transfer:
         meta = getattr(client, "meta", None)
         return getattr(meta, "endpoint_url", None)
 
+    @staticmethod
+    def _object_key(backend, key):
+        """相对 key → 该后端桶内的真实 object key（含各自的前缀）。"""
+        to_object_key = getattr(backend, "_to_object_key", None)
+        return to_object_key(key) if callable(to_object_key) else key
+
+    def _server_side_copy(self, key):
+        """同 endpoint 下的服务端复制；做不到就返回 ``None`` 交给流式搬运。
+
+        ``CopySource`` 必须由**源端**的桶与前缀拼出来：早期版本拿目标后端
+        去复制，只能看见目标桶 —— 同 endpoint 不同桶时要么找不到源对象
+        （每个对象白跑一次请求），要么把目标桶里的同名诱饵当成迁移结果。
+        """
+        src_client = getattr(self.src, "client", None)
+        dst_client = getattr(self.dst, "client", None)
+        src_bucket = getattr(self.src, "bucket_name", None)
+        dst_bucket = getattr(self.dst, "bucket_name", None)
+        if src_client is None or dst_client is None:
+            return None
+        if not src_bucket or not dst_bucket:
+            return None
+
+        src_key = self._object_key(self.src, key)
+        dst_key = self._object_key(self.dst, key)
+        if src_bucket == dst_bucket and src_key == dst_key:
+            # 同一个桶同一个位置：没什么可搬的，交给调用方判「无需迁移」。
+            return None
+
+        dst_client.copy_object(
+            Bucket=dst_bucket,
+            CopySource={"Bucket": src_bucket, "Key": src_key},
+            Key=dst_key,
+        )
+        meta = self.dst.head_object(key)
+        return (meta["size"], meta.get("etag") or "") if meta else None
+
     def transfer(self, key: str, *, size: int = 0):
         """搬一个对象，返回 ``(size, etag)``。异常向上抛，由调用方记为失败。"""
         if self._same_backend:
             raise ValueError("源与目的是同一个存储后端，无需迁移")
         if self._same_endpoint:
             try:
-                self.dst.copy_object(key, key)
-                meta = self.dst.head_object(key)
-                if meta:
-                    return meta["size"], meta.get("etag") or ""
+                result = self._server_side_copy(key)
+                if result is not None:
+                    return result
             except Exception:
                 # 服务端复制不可用（跨桶、实现不支持、本地存储没有源文件…）
                 # 就退回流式搬运，不把整个任务判死。
@@ -283,7 +336,9 @@ class S3Transfer:
 
     def _stream_transfer(self, key, size):
         path, filename = split_key(key)
-        fd, temp_path = tempfile.mkstemp(prefix="moeflow-pool-")
+        fd, temp_path = tempfile.mkstemp(
+            prefix="moeflow-pool-", dir=_transfer_temp_dir()
+        )
         os.close(fd)
         try:
             self.src.download(path, filename, local_path=temp_path)

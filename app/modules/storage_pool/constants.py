@@ -94,3 +94,7 @@ MAX_STALLS = 3
 
 #: 自动续跑的延迟（秒）。给上一轮的状态写入留出可见性时间。
 CONTINUE_COUNTDOWN = 30
+
+#: S3 ``delete_objects`` 单次 key 上限（协议规定 1000）。删源必须按这个分批，
+#: 否则超过一千个对象的项目会整批失败，源端对象永远删不掉。
+DELETE_BATCH_SIZE = 1000
