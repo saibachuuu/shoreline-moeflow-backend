@@ -426,6 +426,58 @@ class ScanGateTestCase(MoeTestCase):
         delay.assert_not_called()
         self.assertEqual(0, StorageTransfer.objects.count())
 
+    def test_busy_project_with_presence_is_skipped(self):
+        """有在线心跳的用户正在操作时，巡查放弃将该项目放入迁移队列。"""
+        from app.models.presence import ProjectPresence
+
+        StoragePoolSetting.get().update(set__scan_enabled=True)
+        now = datetime.datetime.utcnow()
+        user = self.create_user("busy-user")
+        ProjectPresence(
+            project=self.project,
+            team=self.project.team,
+            user=user,
+            action="editing_text",
+            last_heartbeat=now,
+            expire_at=now + datetime.timedelta(seconds=45),
+        ).save()
+
+        result, delay = self._run_scan()
+        delay.assert_not_called()
+        self.assertEqual(0, StorageTransfer.objects.count())
+
+    def test_busy_project_with_recent_edit_time_is_skipped(self):
+        """项目在最近 15 分钟内有编辑动作（如正在保存项目信息或编辑文本），巡查放弃将该项目放入迁移队列。"""
+        StoragePoolSetting.get().update(set__scan_enabled=True)
+        now = datetime.datetime.utcnow()
+        Project.objects(id=self.project.id).update(
+            set__edit_time=now - datetime.timedelta(minutes=5)
+        )
+
+        result, delay = self._run_scan(force=True)
+        delay.assert_not_called()
+        self.assertEqual(0, StorageTransfer.objects.count())
+
+    def test_busy_project_with_presence_buffer_is_skipped(self):
+        """心跳即便刚过期片刻（处于5分钟安全缓冲期内），巡查依然将其作为活跃保护放弃迁移。"""
+        from app.models.presence import ProjectPresence
+
+        StoragePoolSetting.get().update(set__scan_enabled=True)
+        now = datetime.datetime.utcnow()
+        user = self.create_user("busy-user")
+        ProjectPresence(
+            project=self.project,
+            team=self.project.team,
+            user=user,
+            action="editing_text",
+            last_heartbeat=now - datetime.timedelta(minutes=2),
+            expire_at=now - datetime.timedelta(minutes=1),
+        ).save()
+
+        result, delay = self._run_scan()
+        delay.assert_not_called()
+        self.assertEqual(0, StorageTransfer.objects.count())
+
 
 class RunGateTestCase(MoeTestCase):
     """紧急停止：关掉后 worker 不领取新批次，任务留在待执行。"""
@@ -757,9 +809,7 @@ class StoragePoolFixRegressionTestCase(MoeAPITestCase):
         text.update(save_name="note.txt", type=FileType.TEXT)
         text.reload()
         # 文本原文跟着项目指针走，和图片一致，不再搞特殊。
-        self.assertEqual(
-            str(image.storage_backend), str(text.storage_backend)
-        )
+        self.assertEqual(str(image.storage_backend), str(text.storage_backend))
         # TEXT 在搬运清单里，体积跟导出产物一起算。
         kinds = transfer_service.enumerate_object_kinds(project)
         self.assertIn("files/page.png", kinds)
@@ -854,8 +904,9 @@ class MoveAndLockTestCase(MoeAPITestCase):
         )
 
     def _run_all(self, transfer):
-        with self._patch_move(FakeBackend(), FakeBackend()), patch.object(
-            transfer_service, "_continue_later"
+        with (
+            self._patch_move(FakeBackend(), FakeBackend()),
+            patch.object(transfer_service, "_continue_later"),
         ):
             transfer_service.run(str(transfer.id))
             transfer_service.run(str(transfer.id))
@@ -891,7 +942,9 @@ class MoveAndLockTestCase(MoeAPITestCase):
             token=token,
         )
         self.assertErrorEqual(response)
-        self._run_all(StorageTransfer.objects(project=project).order_by("-create_time").first())
+        self._run_all(
+            StorageTransfer.objects(project=project).order_by("-create_time").first()
+        )
         project.reload()
         self.assertIsNone(project.storage_source_id)
 
@@ -924,8 +977,9 @@ class MoveAndLockTestCase(MoeAPITestCase):
         self.assertEqual(source_b.id, transfer.target_source.id)
 
         src_backend, dst_backend = FakeBackend(), FakeBackend()
-        with self._patch_move(src_backend, dst_backend), patch.object(
-            transfer_service, "_continue_later"
+        with (
+            self._patch_move(src_backend, dst_backend),
+            patch.object(transfer_service, "_continue_later"),
         ):
             transfer_service.run(str(transfer.id))
             transfer_service.run(str(transfer.id))
@@ -976,8 +1030,7 @@ class MoveAndLockTestCase(MoeAPITestCase):
         # 自动巡查也跳过锁定的项目。
         StoragePoolSetting.get().update(set__scan_enabled=True)
         Project.objects(id=project.id).update(
-            set__edit_time=datetime.datetime.utcnow()
-            - datetime.timedelta(days=200)
+            set__edit_time=datetime.datetime.utcnow() - datetime.timedelta(days=200)
         )
         with patch.object(tasks_module.storage_pool_run, "delay"):
             tasks_module.storage_pool_scan()

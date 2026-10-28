@@ -39,6 +39,14 @@ class SourceTranslationListAPI(MoeAPIView):
             data["content"], target=target, user=self.current_user
         )
         if translation:
+            try:
+                from app.models.presence import ProjectPresence
+
+                ProjectPresence.heartbeat(
+                    source.file.project, self.current_user, action="editing_text"
+                )
+            except Exception:
+                pass
             return translation.to_api()
 
 
@@ -99,6 +107,16 @@ class TranslationAPI(MoeAPIView):
                 translation.proofreader = self.current_user
             translation.update_cache("edit_time", datetime.datetime.utcnow())
         translation.save()
+        try:
+            from app.models.presence import ProjectPresence
+
+            ProjectPresence.heartbeat(
+                translation.source.file.project,
+                self.current_user,
+                action="editing_text",
+            )
+        except Exception:
+            pass
         return translation.to_api()
 
     @token_required

@@ -40,6 +40,14 @@ class SourceTipListAPI(MoeAPIView):
         target = source.file.project.target_by_id(data["target_id"])
         tip = source.create_tip(data["content"], target=target, user=self.current_user)
         source.update_cache("edit_time", datetime.datetime.utcnow())
+        try:
+            from app.models.presence import ProjectPresence
+
+            ProjectPresence.heartbeat(
+                source.file.project, self.current_user, action="editing_text"
+            )
+        except Exception:
+            pass
         return tip.to_api()
 
 
@@ -75,6 +83,14 @@ class TipAPI(MoeAPIView):
         tip.edit_time = datetime.datetime.utcnow()
         tip.save()
         tip.source.update_cache("edit_time", datetime.datetime.utcnow())
+        try:
+            from app.models.presence import ProjectPresence
+
+            ProjectPresence.heartbeat(
+                tip.source.file.project, self.current_user, action="editing_text"
+            )
+        except Exception:
+            pass
         return tip.to_api()
 
     @token_required

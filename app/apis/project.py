@@ -107,8 +107,17 @@ class ProjectAPI(MoeAPIView):
         if data.get("position_lock_enabled") is False:
             # 总开关关闭时二级锁定一并清空
             data["position_lock_tags"] = []
+        data["edit_time"] = datetime.datetime.utcnow()
         project.update(**data)
         project.reload()
+        try:
+            from app.models.presence import ProjectPresence
+
+            ProjectPresence.heartbeat(
+                project, self.current_user, action="editing_setting"
+            )
+        except Exception:
+            pass
         project_data = project.to_api(user=self.current_user)
         project_data["member_summary"] = ProjectMemberService.member_summaries(
             [project]

@@ -104,6 +104,22 @@ def storage_pool_scan(batch_size: int = SCAN_BATCH_SIZE, force: bool = False):
         for project in candidates:
             if queued >= batch_size or started >= max_projects:
                 break
+            # 实时重载项目最新属性，确保拿到并发写入的最新 edit_time 与锁定状态
+            try:
+                project.reload()
+            except Exception:
+                continue
+
+            if project.edit_time and project.edit_time >= cutoff:
+                logger.info(
+                    "存储池巡查跳过项目（最新 edit_time >= cutoff 已不再是冷数据）：project=%s",
+                    project.id,
+                )
+                continue
+
+            if getattr(project, "storage_pool_locked", False):
+                continue
+
             # 整项目取整：预算只决定「这轮开工哪几个项目」，不切分单个项目。
             # 项目占用取自 Project.file_size（KB，迁移 m0009 回填过）。
             estimate = (project.file_size or 0) * 1024
@@ -150,11 +166,45 @@ def _record_scan_result(result, queued):
 
 
 def _is_busy(project) -> bool:
-    """有活跃在线状态的项目不要动 —— 用户可能正在上面干活。"""
+    """有活跃在线状态或近期有编辑动作的项目不要动 —— 用户可能正在上面干活。
+
+    双重保险：
+    1. 在线心跳保护：当前有效心跳（expire_at > now）或最近 5 分钟内有心跳上报记录
+       （容忍心跳短暂失联/网络抖动，避免临界时点刚好踩中巡查）；
+    2. 近期编辑保护：项目在最近 15 分钟内有任何修改记录（edit_time > now - 15min），
+       即使尚未触发心跳或刚保存完信息，也坚决不纳入冷数据搬迁。
+    """
     now = datetime.datetime.utcnow()
-    return (
-        ProjectPresence.objects(project=project, expire_at__gt=now).first() is not None
+    # 保险 1：在线活跃状态（含 5 分钟安全缓冲）
+    presence_cutoff = now - datetime.timedelta(minutes=5)
+    has_presence = (
+        ProjectPresence.objects(
+            project=project,
+            expire_at__gt=now,
+        ).first()
+        is not None
+        or ProjectPresence.objects(
+            project=project,
+            last_heartbeat__gt=presence_cutoff,
+        ).first()
+        is not None
     )
+    if has_presence:
+        logger.info("存储池巡查跳过活跃项目（检测到在线成员）：project=%s", project.id)
+        return True
+
+    # 保险 2：项目近期编辑保护（最近 15 分钟内有编辑动作）
+    recent_edit_cutoff = now - datetime.timedelta(minutes=15)
+    edit_time = getattr(project, "edit_time", None)
+    if edit_time and edit_time > recent_edit_cutoff:
+        logger.info(
+            "存储池巡查跳过活跃项目（近期有编辑动作 edit_time=%s）：project=%s",
+            edit_time,
+            project.id,
+        )
+        return True
+
+    return False
 
 
 @celery.task(name="tasks.storage_pool_run")
