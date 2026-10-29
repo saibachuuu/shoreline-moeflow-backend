@@ -7,7 +7,7 @@ API + storage server for [moeflow](https://github.com/moeflow-com)
 
 [![codecov](https://codecov.io/gh/moeflow-com/moeflow-backend/graph/badge.svg?token=LQJBLB495F)](https://codecov.io/gh/moeflow-com/moeflow-backend) [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=moeflow-com_moeflow-backend&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=moeflow-com_moeflow-backend)
 
-This version adds notification system, proofread tips, and position lock APIs. **Please use it with MoeFlow frontend Version 1.2.6 or later** for full functionality.
+This version adds the storage pool, per-project storage usage accounting, and deployment refinements. **Please use it with MoeFlow frontend Version 1.2.7 or later** for full functionality.
 
 This version requires an **S3-compatible object storage** (e.g. Aliyun OSS, Cloudflare R2) for file storage. For other storage backends, see the following community branch:
 
@@ -105,3 +105,12 @@ Please refer to instructions in https://github.com/moeflow-com/moeflow-deploy
 - **Two-Level Project Position Locks**: Projects gain `position_lock_enabled` / `position_lock_tags` fields (writable by the team creator only; the tag list is cleared when the master switch turns off). The level-1 master switch locks the admin tag and all team custom tags; level-2 optionally locks selected worker roles among the seven worker tags. Enforcement lands at the shared tag-validation choke point (add/update/merge/bind/invitation paths); removing or restoring members holding locked tags is also team-creator-only, and the application-approval join path is covered as well. New tests cover settings permission, both lock levels, removal locking, unlock restoring edits, and invitation rejection.
 - **Site Administrator Restriction**: Assigning the site administrator privilege is restricted to the configured site owner.
 - **Partner Search Module Isolation**: Partner catalogue search APIs and settings moved out of core code into the `partner_search` optional module.
+
+### Version 1.2.7
+
+- **Storage Pool**: Migrate cold projects from the default bucket to any S3-compatible pool source. One move API covers default→source migration, source→default restore and source A→source B direct transfer; projects can be locked, the daily scan skips active ones, and every object is tracked so a retry resumes from the last completed row. The pointer is switched only after a fresh manifest re-check, and source objects are deleted only after verification — a failure never loses a readable copy. Cross-provider transfers use server-side copy on the same endpoint, otherwise they stream through `POOL_TRANSFER_TEMP_DIR` (peak usage is one object, not the whole project). Resampled images follow the project pointer, cover and proofread marker images stay in the default bucket, and missing derivatives are skipped instead of failing the transfer.
+- **Proofread Draft Markers**: Team creators can toggle the proofread-draft marker and adjust the dot opacity (default 92%). The marker is baked into each page image with the configured alpha while numbers stay fully opaque; opacity participates in the cache fingerprint, so changing the setting re-bakes instead of serving a stale image. Both delivery paths snapshot the team settings when the request is accepted, and older payloads fall back to the previous defaults.
+- **Per-Project Storage Usage**: Projects track `cover_bytes`, `resample_bytes` and `output_bytes` alongside the original-file total, with project badges, a site-wide usage card and migration budgets reading the same numbers. A new `app/scripts/backfill_storage_usage.py` script probes objects in dry-run or `--apply` mode to backfill historical thumbnail and export sizes.
+- **Active-Project Protection**: The scan re-reads each project and skips any project with a live presence heartbeat, a recent editing heartbeat, or edits within the last 15 minutes.
+- **Deployment Roles**: `APP_ROLE` (`web` / `worker` / `beat`) stops Celery prefork children from registering HTTP blueprints. A single `moeflow-celery-misc` container supervises notification, security-email and beat through supervisord, with per-process concurrency from environment variables.
+- **Engineering**: Repo-wide LF normalization, ruff formatting, and a faster parallel test/CI setup.

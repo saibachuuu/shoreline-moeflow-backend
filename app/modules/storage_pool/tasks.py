@@ -17,6 +17,7 @@ import datetime
 import logging
 
 from app import celery
+from app.constants.project import ProjectStatus
 from app.models import connect_db
 from app.models.presence import ProjectPresence
 from app.models.project import Project
@@ -97,6 +98,11 @@ def storage_pool_scan(batch_size: int = SCAN_BATCH_SIZE, force: bool = False):
                 storage_source_id=None,  # 还没迁的项目
                 # 站长手动锁定的项目不参与自动挑选，只接受手动搬迁。
                 storage_pool_locked__ne=True,
+                # 已完结 / 正在清空的项目不参与自动搬迁：run() 里也有守卫，
+                # 但在候选阶段就排除，才不会建出注定 ABORTED 的任务、白占
+                # scan 的队头名额。
+                status=ProjectStatus.WORKING,
+                clear_in_progress__ne=True,
             )
             .order_by("edit_time", "id")
             .limit(batch_size)

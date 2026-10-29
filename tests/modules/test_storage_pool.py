@@ -18,6 +18,7 @@ import datetime
 
 from bson import ObjectId
 
+from app.constants.project import ProjectStatus
 from app.models.project import Project
 from app.modules.storage_pool import tasks as tasks_module
 from app.modules.storage_pool import transfer as transfer_service
@@ -413,6 +414,37 @@ class ScanGateTestCase(MoeTestCase):
         self.assertIsNotNone(setting.last_scan_time)
         self.assertEqual(1, setting.last_scan_queued)
 
+    def test_cleared_project_is_not_scheduled(self):
+        """已清空的项目不参与自动搬迁（线上 st=1 的实际含义）。"""
+        StoragePoolSetting.get().update(set__scan_enabled=True)
+        Project.objects(id=self.project.id).update(
+            set__status=ProjectStatus.CLEARED
+        )
+
+        result, delay = self._run_scan(force=True)
+        delay.assert_not_called()
+        self.assertEqual(0, StorageTransfer.objects.count())
+
+    def test_completed_project_is_not_scheduled(self):
+        """已完成的项目不参与自动搬迁，避免建出注定 ABORTED 的任务。"""
+        StoragePoolSetting.get().update(set__scan_enabled=True)
+        Project.objects(id=self.project.id).update(
+            set__status=ProjectStatus.COMPLETED
+        )
+
+        result, delay = self._run_scan(force=True)
+        delay.assert_not_called()
+        self.assertEqual(0, StorageTransfer.objects.count())
+
+    def test_clearing_project_is_not_scheduled(self):
+        """正在清空的项目与迁移互斥，巡查必须跳过。"""
+        StoragePoolSetting.get().update(set__scan_enabled=True)
+        Project.objects(id=self.project.id).update(set__clear_in_progress=True)
+
+        result, delay = self._run_scan(force=True)
+        delay.assert_not_called()
+        self.assertEqual(0, StorageTransfer.objects.count())
+
     def test_force_ignores_switch(self):
         StoragePoolSetting.get().update(set__scan_enabled=False)
         result, delay = self._run_scan(force=True)
@@ -464,21 +496,14 @@ class ScanGateTestCase(MoeTestCase):
 
     def test_busy_project_with_presence_buffer_is_skipped(self):
         """心跳即便刚过期片刻（处于5分钟安全缓冲期内），巡查依然将其作为活跃保护放弃迁移。"""
-        from app.models.presence import ProjectPresence
-
         StoragePoolSetting.get().update(set__scan_enabled=True)
-        now = datetime.datetime.utcnow()
-        user = self.create_user("busy-user")
-        ProjectPresence(
-            project=self.project,
-            team=self.project.team,
-            user=user,
-            action="editing_text",
-            last_heartbeat=now - datetime.timedelta(minutes=2),
-            expire_at=now - datetime.timedelta(minutes=1),
-        ).save()
+        # 不落真实 presence 文档：expire_at 一过期就会被 TTL 索引删掉，
+        # 构造不出「已过期但仍在 5 分钟缓冲内」的记录。直接模拟两次查询：
+        # 第一次（expire_at > now）为空，第二次（last_heartbeat > now-5min）命中。
+        with patch.object(tasks_module, "ProjectPresence") as presence_cls:
+            presence_cls.objects.return_value.first.side_effect = [None, object()]
+            result, delay = self._run_scan()
 
-        result, delay = self._run_scan()
         delay.assert_not_called()
         self.assertEqual(0, StorageTransfer.objects.count())
 

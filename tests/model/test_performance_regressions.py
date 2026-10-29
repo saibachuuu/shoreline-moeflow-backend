@@ -221,6 +221,10 @@ class PerformanceRegressionTestCase(MoeTestCase):
             }
         )
         image = Mock(save_name="remote.png")
+        # 重采样图跟随项目后端；项目未迁移时 ``storage_backend`` 就是全局
+        # ``oss``。Mock 不会自动带上这个属性，显式指过去，才能同时观察到
+        # cover 与 resample 两次上传。
+        image.storage_backend = thumbnail.oss
 
         def write_source(*, local_path):
             Image.new("RGB", (20, 20), "white").save(local_path, format="PNG")
