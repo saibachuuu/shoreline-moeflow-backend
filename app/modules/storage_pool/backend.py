@@ -24,20 +24,59 @@ logger = logging.getLogger(__name__)
 
 _S3_NOT_FOUND_CODES = {"404", "NoSuchKey", "NotFound"}
 
+#: 已通过探针校验的暂存目录（进程级缓存）。配置在进程生命周期内不会变，
+#: 校验一次就够；按路径缓存，重试/多项目不会重复建探针。
+_VALIDATED_TEMP_DIRS = set()
+
 
 def _transfer_temp_dir():
-    """流式搬运的落盘目录。
+    """流式搬运的落盘目录；未配置返回 ``None``（跟随系统临时目录）。
 
-    默认跟随系统临时目录；``POOL_TRANSFER_TEMP_DIR`` 可以指到数据盘。
-    小机器的 ``/tmp`` 常常是 tmpfs（吃内存），搬一个几百 MB 的原图就能把
-    整台机器顶到 OOM。
+    小机器的 ``/tmp`` 常常是 tmpfs（吃内存）或容器可写层（写满宿主盘，
+    连带同盘的 Mongo / RabbitMQ），所以允许用 ``POOL_TRANSFER_TEMP_DIR``
+    指到数据盘。
+
+    只有「没有 app context」才退回系统默认值。**配了但不可用一律抛
+    ``RuntimeError``**：静默降级会把本该落在数据盘的文件写回根分区，
+    正是这个开关要避免的事，而且错误会进对象的 ``last_error``，可排障。
+
+    目录**必须已存在**，不自动创建 —— 路径拼错时 ``makedirs`` 会在根分区
+    建一个空目录然后写满它，比直接报错危险得多。
     """
     try:
         from flask import current_app
 
-        return current_app.config.get("POOL_TRANSFER_TEMP_DIR") or None
-    except Exception:  # pragma: no cover - 没有 app context 时退回系统默认
+        configured = current_app.config.get("POOL_TRANSFER_TEMP_DIR")
+    except RuntimeError:  # pragma: no cover - 没有 app context 时退回系统默认
         return None
+    if not configured:
+        return None
+
+    path = str(configured).strip()
+    if not path:
+        return None
+    if not os.path.isabs(path):
+        raise RuntimeError(f"POOL_TRANSFER_TEMP_DIR 必须是绝对路径（当前：{path!r}）")
+    if path in _VALIDATED_TEMP_DIRS:
+        return path
+    if not os.path.isdir(path):
+        raise RuntimeError(
+            f"POOL_TRANSFER_TEMP_DIR 不存在或不是目录：{path}"
+            "（请先建好目录并挂载到数据盘，程序不会自动创建）"
+        )
+    # 不用 os.access 判可写：root 恒为 True，只读挂载也会误判。写一个探针
+    # 最可靠，与 test_connection() 的思路一致。
+    try:
+        fd, probe = tempfile.mkstemp(prefix=".moeflow-pool-probe-", dir=path)
+        os.close(fd)
+        os.remove(probe)
+    except OSError as error:
+        raise RuntimeError(
+            f"POOL_TRANSFER_TEMP_DIR 不可写：{path}（{error}）"
+        ) from error
+    _VALIDATED_TEMP_DIRS.add(path)
+    logger.info("存储池搬运暂存目录：%s", path)
+    return path
 
 
 def _is_not_found(error) -> bool:
@@ -336,9 +375,10 @@ class S3Transfer:
 
     def _stream_transfer(self, key, size):
         path, filename = split_key(key)
-        fd, temp_path = tempfile.mkstemp(
-            prefix="moeflow-pool-", dir=_transfer_temp_dir()
-        )
+        # 配置非法时这里直接抛 RuntimeError，由 _copy_objects 记进对象
+        # last_error —— 绝不静默退回系统临时目录。
+        temp_dir = _transfer_temp_dir()
+        fd, temp_path = tempfile.mkstemp(prefix="moeflow-pool-", dir=temp_dir)
         os.close(fd)
         try:
             self.src.download(path, filename, local_path=temp_path)

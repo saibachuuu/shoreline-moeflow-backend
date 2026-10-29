@@ -9,8 +9,12 @@
 3. 提供两个 celery 任务：每日巡查与逐项目搬家。
 """
 
+import logging
+
 from app.modules import ModuleSpec
 from app.services import storage_router
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve(source_id):
@@ -33,6 +37,30 @@ def _init(app):
     # 注册是幂等的，模块被重复初始化也不会叠加。
     storage_router.register(_resolve)
     _register_beat_schedule()
+    _check_temp_dir(app)
+
+
+def _check_temp_dir(app):
+    """启动自检：暂存目录配置有问题就记日志，不阻断模块加载。
+
+    ``factory.py`` 对模块 ``init`` 的异常是「记日志后跳过整个模块」——
+    在这里抛错会把存储池的管理接口一起弄没，排障面反而更大。真正的
+    强校验在 ``backend._transfer_temp_dir()`` 的使用点。
+    """
+    import tempfile
+
+    from .backend import _transfer_temp_dir
+
+    try:
+        with app.app_context():
+            path = _transfer_temp_dir()
+    except (RuntimeError, OSError) as error:
+        logger.error("存储池暂存目录配置无效：%s", error)
+        return
+    if path:
+        logger.info("存储池暂存目录已就绪：%s", path)
+    else:
+        logger.info("存储池暂存目录未配置，使用系统临时目录：%s", tempfile.gettempdir())
 
 
 def _register_beat_schedule():

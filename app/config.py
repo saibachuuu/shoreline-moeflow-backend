@@ -106,6 +106,14 @@ OSS_OUTPUT_PREFIX = "outputs/"
 OSS_USER_AVATAR_PREFIX = "user-avatars/"
 OSS_TEAM_AVATAR_PREFIX = "team-avatars/"
 # -----------
+# 存储池搬运的暂存目录
+# -----------
+# 存储池跨服务商搬运是「下载 → 本地临时文件 → 上传」。留空跟随系统临时目录；
+# 容器里那通常是可写层，小盘机器会被写满。配置后必须是**已存在的专用绝对路径**
+# （代码不会自动创建：路径拼错时宁可直接报错，也不要在根分区悄悄建目录再写满它）。
+# 该值在进程启动时快照，改完必须重启 backend 与 celery worker 才生效。
+POOL_TRANSFER_TEMP_DIR = env.get("POOL_TRANSFER_TEMP_DIR", "").strip() or None
+# -----------
 # 谷歌接口
 # -----------
 GOOGLE_HTTP_PROXY = None

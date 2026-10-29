@@ -88,6 +88,46 @@ PENDING → COPYING → VERIFIED → SWITCHED → DONE
 副产品：同一个桶可以用不同 `sub_path` 添加多次，等于在一个桶里开多个命名空间，
 不需要多套凭据。
 
+## 暂存目录（`POOL_TRANSFER_TEMP_DIR`）
+
+跨服务商搬运是「下载 → 本地临时文件 → 上传」（同 endpoint 走服务端复制，不落盘）。
+峰值只占**单个最大对象**的大小，与总搬运量无关 —— 对象是串行处理的，每个搬完
+立刻删除。但容器默认的 `/tmp` 在可写层：小盘机器会被写满，还会连带同盘的
+MongoDB / RabbitMQ。
+
+```
+POOL_TRANSFER_TEMP_DIR=/var/tmp/moeflow-pool
+```
+
+必须遵守的三条：
+
+1. **已存在的专用绝对路径**。代码不会自动创建 —— 路径拼错时宁可直接报错，
+   也不要在根分区悄悄建个目录然后写满它。
+2. **不要指向 `/app/storage`**：该目录经前端容器以 `/storage` 暴露，搬运中的
+   原图会短暂可被公网直接读取。也**不要挂 tmpfs**，那会吃内存，正是本配置要
+   规避的问题。
+3. **改完必须重启** `moeflow-backend` 与 `moeflow-celery-default`。配置在进程
+   启动时快照，运行中改 `.env` 不生效。
+
+容量按 `最大单对象 × 1.5 + 数百 MB` 准备。决定上限的是导出产物 zip，不是原图。
+
+配置非法时的行为：**任务失败，不静默降级**。对象级 `last_error` 会写明原因
+（相对路径 / 目录不存在 / 不可写），不会退回系统临时目录偷偷写根分区。
+
+容器重建会丢掉目录里的暂存文件：正在进行的那一个对象失败，但指针未切换、
+读取仍走旧桶，断点续跑会重搬该对象，**不丢数据**。
+
+排查：
+
+```bash
+docker compose exec moeflow-celery-default sh -lc 'echo $POOL_TRANSFER_TEMP_DIR; df -h "$POOL_TRANSFER_TEMP_DIR"'
+docker compose exec moeflow-celery-default sh -lc 'ls -la "$POOL_TRANSFER_TEMP_DIR"'
+docker compose logs moeflow-celery-default | grep 存储池暂存目录
+```
+
+`df` 的挂载点显示 `/`（overlay）就说明卷没挂上：配置虽然生效，写的仍是容器
+可写层，等于白配。
+
 ## 接口
 
 | 方法 | 路径 | 说明 |
