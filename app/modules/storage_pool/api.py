@@ -83,6 +83,12 @@ class SourceBusyError(APIError):
     message = gettext("该来源有正在进行的迁移任务，请等待任务结束后再操作")
 
 
+class TransferInProgressError(APIError):
+    status_code = 409
+    code = 7
+    message = gettext("项目正在迁移，请等待迁移完成或先取消迁移")
+
+
 def _get_source(source_id):
     source = StoragePoolSource.objects(id=source_id).first()
     if source is None:

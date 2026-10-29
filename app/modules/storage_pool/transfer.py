@@ -19,6 +19,7 @@ from flask import current_app
 
 from app import oss
 from app.constants.file import FileType
+from app.constants.project import ProjectStatus
 from app.models.file import File
 from app.models.output import Output
 from app.models.project import Project
@@ -50,30 +51,30 @@ logger = logging.getLogger(__name__)
 def enumerate_object_kinds(project) -> dict:
     """列出该项目需要搬运的 ``{相对 key: kind}``。
 
-    kind 取 ``StorageObjectKind`` 的三值之一。TEXT 的 key 也在 ``files/`` 下，
-    仅靠前缀分不出原图和文本，所以在这里一次查清，后面建行、记账都用它。
+    搬三类：原图（IMAGE）、重采样图（resample）与导出产物（outputs/）。
+    文本原文不搬（前端无展示，留在默认存储）；小封面、校对标记图、
+    头像同样不搬。
+
+    重采样图按 ``save_name`` 推导，**不检查对象是否存在**：检查要么列桶、
+    要么 N 次 HEAD，成本高；不存在的对象由搬运阶段标记 ``SKIPPED``。
     """
     from .constants import StorageObjectKind
 
     file_prefix = current_app.config["OSS_FILE_PREFIX"]
     output_prefix = current_app.config["OSS_OUTPUT_PREFIX"]
+    resample_prefix = f"{file_prefix}{current_app.config['OSS_PROCESS_RESAMPLE_NAME']}-"
 
     kinds = {}
-    # 原图与文本原文：都在 files/ 下，kind 不同（记账口径不同，见 _copy_objects）。
-    # 文件夹没有 save_name，查出来是空串，跳过。
-    text_names = set(
-        File.objects(project=project, type=FileType.TEXT).scalar("save_name")
-    )
-    for save_name in File.objects(
-        project=project, type__in=(FileType.IMAGE, FileType.TEXT)
-    ).scalar("save_name"):
-        if save_name:
-            key = file_prefix + save_name
-            kinds[key] = (
-                StorageObjectKind.TEXT
-                if save_name in text_names
-                else StorageObjectKind.ORIGINAL
-            )
+    # 原图与重采样图：文件夹没有 save_name，查出来是空串，跳过。
+    for save_name in File.objects(project=project, type=FileType.IMAGE).scalar(
+        "save_name"
+    ):
+        if not save_name:
+            continue
+        kinds[file_prefix + save_name] = StorageObjectKind.ORIGINAL
+        stem = save_name.rsplit(".", 1)[0]
+        kinds[f"{resample_prefix}{stem}.webp"] = StorageObjectKind.RESAMPLE
+
     # 导出产物：outputs/<output.id>/<file_name>（含 txt 导出，一起搬）。
     # 用 ``$gt: ""`` 而不是 ``$ne: ""``：后者会把「字段缺失」的老文档
     # 也算进来，枚举出 ``outputs/<id>/`` 这种空文件名的 key，搬它必然 404，
@@ -91,8 +92,9 @@ def enumerate_objects(project) -> list[str]:
     **按数据库清单枚举，不反查桶**：更准（桶里可能有别的项目/历史的垃圾），
     也不依赖桶的列举权限。
 
-    搬三类：原图（IMAGE）、文本原文（TEXT，key 也在 ``files/`` 下）与导出
-    产物（``outputs/<id>/<file_name>``，含 txt 导出）；派生图、头像都不搬。
+    搬三类：原图（IMAGE）、重采样图（resample）与导出产物
+    （``outputs/<id>/<file_name>``，含 txt 导出）；文本、小封面、校对标记图、
+    头像都不搬。
     """
     return list(enumerate_object_kinds(project))
 
@@ -219,6 +221,14 @@ def run(transfer_id):
         _fail(transfer, "来源或项目已不存在")
         return "失败：来源或项目已不存在"
 
+    if project.status != ProjectStatus.WORKING or project.clear_in_progress:
+        transfer.update(
+            set__status=TransferStatus.ABORTED,
+            set__last_error="项目已完结或正在清空，迁移已中止",
+            set__finish_time=datetime.datetime.utcnow(),
+        )
+        return "中止：项目已完结或正在清空"
+
     src, dst = _backends_for(transfer)
 
     if transfer.status == TransferStatus.COPYING:
@@ -340,7 +350,8 @@ def _recompute_counters(transfer):
         copied_objects += 1
         copied_bytes += size
         # 文本原文的 key 也在 files/ 下，仅靠前缀分不出；建任务时写死的
-        # kind 说了算，旧任务没有 kind 才按前缀回退。
+        # kind 说了算，旧任务没有 kind 才按前缀回退。RESAMPLE 与原图一起
+        # 计入 origin_bytes；TEXT 是旧任务遗留，仍按 output_bytes 处理。
         kind = row.kind or (
             StorageObjectKind.OUTPUT
             if row.src_key.startswith(output_prefix)
@@ -359,6 +370,24 @@ def _recompute_counters(transfer):
             object_count=copied_objects,
         ),
     )
+
+
+def _is_not_found(error) -> bool:
+    """判断异常是不是「源对象不存在」。
+
+    派生图（resample）可能还没生成，这不是迁移失败；记成 SKIPPED 继续走。
+    覆盖三种后端：oss2（阿里云，以及 PoolBackend 转译后的 404）、
+    boto3（默认存储的 S3 分支）、本地文件系统。
+    """
+    from botocore.exceptions import ClientError
+    from oss2.exceptions import NoSuchKey
+
+    if isinstance(error, (NoSuchKey, FileNotFoundError)):
+        return True
+    if isinstance(error, ClientError):
+        code = str(error.response.get("Error", {}).get("Code", ""))
+        return code in ("404", "NoSuchKey", "NotFound")
+    return False
 
 
 def _copy_objects(transfer, src, dst, source):
@@ -384,6 +413,16 @@ def _copy_objects(transfer, src, dst, source):
         try:
             size, etag = S3Transfer(src, dst).transfer(row.src_key, size=row.size)
         except Exception as error:
+            if _is_not_found(error):
+                # 派生图还没生成：跳过，不删源、不算失败。
+                StorageTransferObject.objects(
+                    id=row.id, status=TransferObjectStatus.PENDING
+                ).update_one(
+                    set__status=TransferObjectStatus.SKIPPED,
+                    set__last_error="源对象不存在，已跳过",
+                    inc__attempts=1,
+                )
+                continue
             logger.exception("对象搬运失败：%s", row.src_key)
             StorageTransferObject.objects(
                 id=row.id, status=TransferObjectStatus.PENDING
@@ -489,6 +528,8 @@ def _switch_pointer(transfer, project, source):
 
     try:
         project.reload()
+        if project.status != ProjectStatus.WORKING or project.clear_in_progress:
+            return False, "项目已完结或正在清空，迁移已中止", False
         current_keys = set(enumerate_objects(project))
         recorded = set(
             StorageTransferObject.objects(transfer=transfer).scalar("src_key")

@@ -119,9 +119,9 @@ class TransferBreakdown(EmbeddedDocument):
     """这一趟实际搬了多少字节，按类别分开。
 
     只统计**被搬运的**三类：原图（``files/`` 下的 IMAGE，记 ``origin_bytes``）、
-    文本原文（``files/`` 下的 TEXT，记 ``output_bytes``，和导出产物一起算）
-    与导出产物（``outputs/``，记 ``output_bytes``）。
-    派生图、头像不搬，所以不出现在这里。
+    重采样图（``files/resample-*``，记 ``origin_bytes``）与导出产物
+    （``outputs/``，记 ``output_bytes``）。
+    文本、小封面、校对标记图、头像不搬，所以不出现在这里。
 
     用途是给后台看「这个项目到底占在哪」，以及和项目账做交叉对账；
     **不用它覆盖 ``Project.file_size``** —— 后者还包含派生图等，

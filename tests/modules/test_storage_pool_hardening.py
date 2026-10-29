@@ -204,10 +204,11 @@ class RetryAccountingTestCase(MoeTestCase):
 
         transfer.reload()
         self.assertEqual(TransferStatus.DONE, transfer.status, transfer.last_error)
-        self.assertEqual(2, transfer.copied_objects, "重试后计数不能超过对象总数")
+        # 2 张图 ×（原图 + 重采样图）= 4 个对象。
+        self.assertEqual(4, transfer.copied_objects, "重试后计数不能超过对象总数")
         self.assertEqual(transfer.total_objects, transfer.copied_objects)
         self.assertEqual(
-            2,
+            4,
             StorageTransferObject.objects(
                 transfer=transfer,
                 status__in=[

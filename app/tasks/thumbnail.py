@@ -240,10 +240,11 @@ def create_thumbnail_task(self, image_id: str, image_path=None):
 
             persist_started_at = time.monotonic()
             if use_object_storage:
+                # 小封面永远写默认存储；重采样图跟着项目指针走。
                 with open(temp_cover_path, "rb") as f:
                     oss.upload(oss_file_prefix, cover_name, f)
                 with open(temp_resample_path, "rb") as f:
-                    oss.upload(oss_file_prefix, resample_name, f)
+                    image.storage_backend.upload(oss_file_prefix, resample_name, f)
             else:
                 output_dir = os.path.join(STORAGE_PATH, oss_file_prefix)
                 os.makedirs(output_dir, exist_ok=True)

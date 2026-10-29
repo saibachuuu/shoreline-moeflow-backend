@@ -82,3 +82,37 @@ class OSSModelTestCase(MoeTestCase):
         # 清理，删除这个文件
         oss.delete(self.path, [filename1])
         self.assertFalse(oss.is_exist(self.path, filename1))
+
+
+class DeleteStoredObjectsTestCase(MoeTestCase):
+    """删除时按后端分组：原图/resample 走项目后端，cover 走默认存储，proofread 不删。"""
+
+    def test_split_by_backend_and_keep_proofread(self):
+        from unittest.mock import MagicMock, PropertyMock, patch
+
+        from app.models.file import File
+
+        project = self.create_project("delete-split")
+        file = project.create_file("page.png")
+        file.update(save_name="page.png")
+
+        backend = MagicMock()
+        with (
+            patch.object(
+                File, "storage_backend", new_callable=PropertyMock
+            ) as backend_property,
+            patch("app.models.file.requires_local_thumbnail", return_value=True),
+            patch("app.models.file.oss") as default_store,
+        ):
+            backend_property.return_value = backend
+            file._delete_stored_objects(["page.png"])
+
+        backend.delete.assert_called_once_with(
+            "files/", ["page.png", "resample-page.webp"]
+        )
+        default_store.delete.assert_called_once_with("files/", ["cover-page.webp"])
+
+        # proofread 一个都不碰：邮件里的图片链接要长期可看。
+        for call in backend.delete.call_args_list + default_store.delete.call_args_list:
+            for name in call.args[1]:
+                self.assertNotIn("proofread-", name)

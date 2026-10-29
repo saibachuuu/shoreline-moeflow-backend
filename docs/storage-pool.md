@@ -52,16 +52,20 @@ Project.storage_source_id = <来源 id>  → 存储池里的那个来源
 指针**同时决定读写**：切了指针之后，新上传的原图直接写进池来源，
 天然不会出现「新文件在默认存储、老文件在池里」的分叉。
 
-搬什么、不搬什么（见规划 §3.5）：
+搬什么、不搬什么：
 
 | 搬 | 不搬 |
 |---|---|
-| 原图 `files/<save_name>`（IMAGE） | 派生图 `cover-*` / `resample-*` / `proofread-*` |
-| 文本原文 `files/<save_name>`（TEXT） | 头像 |
-| 导出产物 `outputs/<id>/<file_name>` | |
+| 原图 `files/<save_name>`（IMAGE） | 文本原文 `files/<save_name>`（TEXT） |
+| 重采样图 `files/resample-*.webp` | 小封面 `files/cover-*.webp` |
+| 导出产物 `outputs/<id>/<file_name>` | 校对标记图 `files/proofread-*.webp` |
+| | 头像 |
 
-派生图永远留在默认存储 —— `File._processed_image_url` 里显式写死走全局 `oss`，
-误路由会让全站缩略图 404。
+- **文本不搬**：前端没有文本展示，搬过去没有意义；读取固定走默认存储。
+- **重采样图跟项目走**：读取时新后端没有会回退默认存储，兼容迁移前生成的旧图。
+- **小封面永远在默认存储** —— `File._processed_image_url` 对 cover 显式用全局 `oss`。
+- **校对标记图不搬、删除项目时也不删**：邮件里的图片链接要长期可看。
+  代价是清空项目后它们会作为孤儿对象留在默认存储。
 
 ## 状态机（顺序即安全性）
 

@@ -226,7 +226,8 @@ class TransferStateMachineTestCase(MoeTestCase):
             transfer = transfer_service.prepare(
                 self.project, self.source, TransferDirection.IN
             )
-            self.assertEqual(1, transfer.total_objects)
+            # 一张图 = 原图 + 重采样图，两个对象。
+            self.assertEqual(2, transfer.total_objects)
             result = transfer_service.run(str(transfer.id))
 
         transfer.reload()
@@ -288,7 +289,8 @@ class TransferStateMachineTestCase(MoeTestCase):
             patch.object(transfer_service, "_continue_later") as continue_later,
         ):
             transfer = transfer_service.prepare(self.project, self.source)
-            self.assertEqual(4, transfer.total_objects)
+            # 4 张图 ×（原图 + 重采样图）= 8 个对象。
+            self.assertEqual(8, transfer.total_objects)
             result = transfer_service.run(str(transfer.id))
 
         transfer.reload()
@@ -307,8 +309,8 @@ class TransferStateMachineTestCase(MoeTestCase):
 
         # 手动续跑能把剩下的搬完
         with self._patch_backends(), patch.object(transfer_service, "_continue_later"):
-            transfer_service.run(str(transfer.id))
-            transfer_service.run(str(transfer.id))
+            for _ in range(4):
+                transfer_service.run(str(transfer.id))
         transfer.reload()
         self.assertEqual(TransferStatus.DONE, transfer.status)
 
@@ -323,7 +325,7 @@ class LockTestCase(MoeTestCase):
 
 
 class EnumerateTestCase(MoeTestCase):
-    def test_images_texts_and_outputs_are_migrated(self):
+    def test_images_resamples_and_outputs_are_migrated(self):
         project = self.create_project("pool-enum")
         image = project.create_file("a.png")
         image.update(save_name="a.png", type=2)
@@ -331,9 +333,10 @@ class EnumerateTestCase(MoeTestCase):
         text.update(save_name="b.txt", type=3)
 
         keys = transfer_service.enumerate_objects(project)
-        self.assertEqual(["files/a.png", "files/b.txt"], keys)
+        # 原图 + 重采样图；文本不搬，也不应出现在清单里。
+        self.assertEqual(["files/a.png", "files/resample-a.webp"], keys)
 
-    def test_text_kind_is_recorded_for_accounting(self):
+    def test_resample_kind_is_recorded_for_accounting(self):
         from app.modules.storage_pool.constants import StorageObjectKind
 
         project = self.create_project("pool-enum-kind")
@@ -344,7 +347,8 @@ class EnumerateTestCase(MoeTestCase):
 
         kinds = transfer_service.enumerate_object_kinds(project)
         self.assertEqual(StorageObjectKind.ORIGINAL, kinds["files/a.png"])
-        self.assertEqual(StorageObjectKind.TEXT, kinds["files/b.txt"])
+        self.assertEqual(StorageObjectKind.RESAMPLE, kinds["files/resample-a.webp"])
+        self.assertNotIn("files/b.txt", kinds)
 
 
 class SettingDefaultTestCase(MoeTestCase):
@@ -680,9 +684,10 @@ class BreakdownTestCase(MoeTestCase):
         breakdown = transfer.breakdown
         self.assertIsNotNone(breakdown)
         self.assertEqual(3, breakdown.object_count)
-        # FakeBackend 每个对象固定 1024 字节；文本原文跟导出产物一起算体积。
-        self.assertEqual(1024, breakdown.origin_bytes)
-        self.assertEqual(2048, breakdown.output_bytes)
+        # FakeBackend 每个对象固定 1024 字节；原图 + 重采样图算 origin，
+        # 文本不搬，导出产物单独算 output。
+        self.assertEqual(2048, breakdown.origin_bytes)
+        self.assertEqual(1024, breakdown.output_bytes)
 
 
 class UsageApiTestCase(MoeAPITestCase):
@@ -780,9 +785,10 @@ class StoragePoolFixRegressionTestCase(MoeAPITestCase):
         image = project.create_file("page.png")
         image.update(save_name="page.png")
         transfer = transfer_service.prepare(project, source, TransferDirection.IN)
-        self.assertEqual(1, transfer.total_objects)
+        # 一张图 = 原图 + 重采样图。
+        self.assertEqual(2, transfer.total_objects)
         transfer.update(set__status=TransferStatus.ABORTED)
-        # 中止后新增一个文件：旧逻辑重试时清单还是 1 个，切指针必再次 ABORT。
+        # 中止后新增一个文件：旧逻辑重试时清单还是旧数，切指针必再次 ABORT。
         extra = project.create_file("page2.png")
         extra.update(save_name="page2.png")
         with patch.object(api_module, "_dispatch"):
@@ -793,13 +799,15 @@ class StoragePoolFixRegressionTestCase(MoeAPITestCase):
         self.assertErrorEqual(response)
         transfer.reload()
         self.assertEqual(TransferStatus.PENDING, transfer.status)
-        self.assertEqual(2, transfer.total_objects)
+        # 两张图 × 2 个对象。
+        self.assertEqual(4, transfer.total_objects)
         self.assertEqual(
-            2,
+            4,
             StorageTransferObject.objects(transfer=transfer).count(),
         )
 
-    def test_text_files_are_migrated_with_the_project(self):
+    def test_text_files_are_not_migrated(self):
+        from app import oss
         from app.constants.file import FileType
 
         project = self.create_project("fix-text")
@@ -808,12 +816,14 @@ class StoragePoolFixRegressionTestCase(MoeAPITestCase):
         text = project.create_file("note.txt")
         text.update(save_name="note.txt", type=FileType.TEXT)
         text.reload()
-        # 文本原文跟着项目指针走，和图片一致，不再搞特殊。
-        self.assertEqual(str(image.storage_backend), str(text.storage_backend))
-        # TEXT 在搬运清单里，体积跟导出产物一起算。
+
+        # 文本永不迁移：读取固定走默认存储，即使项目以后指向存储池。
+        self.assertIs(oss, text.storage_backend)
+        # 清单里只有原图和重采样图，没有文本。
         kinds = transfer_service.enumerate_object_kinds(project)
         self.assertIn("files/page.png", kinds)
-        self.assertIn("files/note.txt", kinds)
+        self.assertIn("files/resample-page.webp", kinds)
+        self.assertNotIn("files/note.txt", kinds)
 
     def test_transfer_list_filters_by_project(self):
         source = self._make_source()
@@ -1065,3 +1075,83 @@ class MoveAndLockTestCase(MoeAPITestCase):
         self.assertEqual(409, response.status_code)
         project.reload()
         self.assertFalse(project.storage_pool_locked)
+
+
+class SkippedObjectTestCase(MoeTestCase):
+    """重采样图还没生成时，搬运应跳过而不是判失败。"""
+
+    def setUp(self):
+        super().setUp()
+        StoragePoolSetting.objects.delete()
+        self.source = StoragePoolSource(
+            name="skip-source",
+            endpoint="https://acc.r2.cloudflarestorage.com",
+            bucket="cold",
+            access_key_id="AKIAEXAMPLE1234",
+            secret_access_key="secret",
+        ).save()
+        self.project = self.create_project("skip-project")
+        image = self.project.create_file("page.png")
+        image.update(save_name="page.png")
+
+    def test_missing_resample_is_skipped_not_failed(self):
+        from oss2.exceptions import NoSuchKey
+
+        class MissingResampleBackend(FakeBackend):
+            def download(self, path, filename, /, *, local_path=None):
+                if filename.startswith("resample-"):
+                    raise NoSuchKey(status=404, headers={}, body={}, details={})
+                return super().download(path, filename, local_path=local_path)
+
+        with (
+            patch.object(
+                transfer_service,
+                "_backends_for",
+                side_effect=lambda transfer: (MissingResampleBackend(), FakeBackend()),
+            ),
+            patch.object(transfer_service, "_continue_later"),
+        ):
+            transfer = transfer_service.prepare(self.project, self.source)
+            result = transfer_service.run(str(transfer.id))
+
+        transfer.reload()
+        self.assertEqual(TransferStatus.DONE, transfer.status, result)
+        skipped = StorageTransferObject.objects(
+            transfer=transfer, status=TransferObjectStatus.SKIPPED
+        )
+        self.assertEqual(1, skipped.count())
+        self.assertIn("resample-", skipped.first().src_key)
+        original = StorageTransferObject.objects(
+            transfer=transfer, kind="original"
+        ).first()
+        self.assertEqual(TransferObjectStatus.SOURCE_DELETED, original.status)
+
+
+class StateGuardTestCase(MoeTestCase):
+    """迁移进行中时，完结/清空要被守卫拒绝。"""
+
+    def test_active_transfer_blocks_complete_and_clear(self):
+        from app.modules.storage_pool import _guard_project_state
+        from app.modules.storage_pool.api import TransferInProgressError
+
+        source = StoragePoolSource(
+            name="guard-source",
+            endpoint="https://acc.r2.cloudflarestorage.com",
+            bucket="cold",
+            access_key_id="AKIAEXAMPLE1234",
+            secret_access_key="secret",
+        ).save()
+        project = self.create_project("guard-project")
+        transfer_service.prepare(project, source, TransferDirection.IN)
+
+        for action in ("complete", "clear"):
+            with self.subTest(action=action):
+                with self.assertRaises(TransferInProgressError):
+                    _guard_project_state(project, action)
+
+        # 取消迁移后放行。
+        StorageTransfer.objects(project=project).update(
+            set__status=TransferStatus.ABORTED
+        )
+        _guard_project_state(project, "complete")
+        _guard_project_state(project, "clear")

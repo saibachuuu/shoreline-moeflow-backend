@@ -28,14 +28,38 @@ def _resolve(source_id):
     return PoolBackend(source)
 
 
+def _guard_project_state(project, action):
+    """项目完结/清空前的守卫：有进行中的迁移就拒绝。
+
+    迁移侧也会在 ``run`` / ``_switch_pointer`` 检查项目状态和
+    ``clear_in_progress``；两边一起保证「清空」与「搬家中切指针」互斥。
+    """
+    if action not in ("complete", "clear"):
+        return
+
+    from .api import TransferInProgressError
+    from .constants import TransferStatus
+    from .models import StorageTransfer
+
+    if (
+        StorageTransfer.objects(
+            project=project, status__in=TransferStatus.ACTIVE
+        ).first()
+        is not None
+    ):
+        raise TransferInProgressError()
+
+
 def _init(app):
     from .api import blueprint
     from . import models  # noqa: F401  确保模型被 import（mongoengine 需要）
     from . import tasks  # noqa: F401  确保任务被注册（beat 也要能找到它）
+    from app.services.project_lifecycle import register_state_guard
 
     app.register_blueprint(blueprint)
     # 注册是幂等的，模块被重复初始化也不会叠加。
     storage_router.register(_resolve)
+    register_state_guard(_guard_project_state)
     _register_beat_schedule()
     _check_temp_dir(app)
 

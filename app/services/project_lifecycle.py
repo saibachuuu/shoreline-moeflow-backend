@@ -53,6 +53,25 @@ def _member_state(member):
     }
 
 
+#: 项目状态变更前的守卫。可选模块（如 storage_pool）在这里注册自己的检查，
+#: core 不需要知道任何具体模块。
+_state_guards = []
+
+
+def register_state_guard(fn):
+    """注册一个状态守卫：``fn(project, action)``，抛异常即拒绝。
+
+    action 取 ``"complete"`` / ``"clear"``。注册是幂等的。
+    """
+    if fn not in _state_guards:
+        _state_guards.append(fn)
+
+
+def _run_state_guards(project, action):
+    for fn in list(_state_guards):
+        fn(project, action)
+
+
 class ProjectLifecycleService:
     @staticmethod
     def status_name(project):
@@ -96,6 +115,7 @@ class ProjectLifecycleService:
         payload = cls._payload(payload)
         cls._require_action(operator, project, "complete")
         cls._ensure_clear_not_in_progress(project)
+        _run_state_guards(project, "complete")
         current = _status_name(project)
         if current == "COMPLETED":
             cls._expected(project, payload, allowed_statuses={"COMPLETED"})
@@ -222,6 +242,7 @@ class ProjectLifecycleService:
         payload = cls._payload(payload)
         cls._require_action(operator, project, "clear")
         cls._ensure_clear_not_in_progress(project)
+        _run_state_guards(project, "clear")
         current = _status_name(project)
         if current == "CLEARED":
             cls._expected(project, payload, allowed_statuses={"CLEARED"})

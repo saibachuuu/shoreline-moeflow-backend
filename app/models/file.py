@@ -711,11 +711,11 @@ class File(Document):
     def storage_backend(self):
         """文件原对象所在的后端：默认存储，或本项目指向的存储来源。
 
-        原图（IMAGE）与文本原文（TEXT）都参与迁移，两者的 key 都在
-        ``files/`` 下，所以这里**不按类型区分** —— 跟着项目的来源走即可。
+        原图（IMAGE）与重采样图跟着项目指针走；文本（TEXT）不参与迁移，
+        固定留在默认存储 —— 否则已迁移项目会去池里找文本，直接 404。
 
-        派生图（cover / resample / proofread）不搬，由
-        :meth:`_processed_image_url` 显式使用全局 ``oss``。
+        小封面与校对标记图不搬，读取由 :meth:`_processed_image_url` 与
+        ``proofread_image`` 显式使用全局 ``oss``。
 
         注册表为空（存储池模块未安装/未启用）时**直接返回全局 oss**，
         连项目 id 都不读 —— 否则每次序列化都要为这一行多查一次项目，
@@ -724,6 +724,8 @@ class File(Document):
         有注册表时也只取 ``project`` 这道引用的 id，不去解引用整个项目文档；
         同一页文件属于同一项目，解析结果在请求级被缓存，因此不会退化成 N+1。
         """
+        if self.type == FileType.TEXT:
+            return oss
         if not storage_router.has_resolvers():
             return oss
         project_ref = self._data.get("project") if self._data else None
@@ -749,48 +751,41 @@ class File(Document):
         )
 
     def _processed_image_url(self, process_name):
-        # ⚠️ 派生图（cover/resample）**永远在默认存储**，因此这里显式用全局
-        # ``oss`` 而不是 ``self.storage_backend``。项目搬进存储池时只搬原图
-        # 和文本，派生图留在原地；误路由会让所有缩略图 404。
+        # 小封面永远在默认存储；重采样图跟着项目指针走（迁移后可能在池里）。
         if not self.save_name:
             return ""
 
         file_prefix = current_app.config["OSS_FILE_PREFIX"]
-        if current_app.config["STORAGE_TYPE"] == StorageType.OSS:
-            if requires_local_thumbnail(current_app.config):
-                save_name_prefix = self.save_name.rsplit(".", 1)[0]
-                processed_name = f"{process_name}-{save_name_prefix}.webp"
-                if self.thumbnail_status == ThumbnailStatus.SUCCEEDED:
-                    return oss.sign_url(file_prefix, processed_name)
-                # Legacy records predate the status field and kept working by
-                # always signing.
-                if self.thumbnail_status == ThumbnailStatus.UNKNOWN:
-                    return oss.sign_url(file_prefix, processed_name)
-                # This probe is a single head_object per row, the same cost
-                # as the LOCAL fallback below.  Status alone must not decide:
-                # a worker killed mid-task (OOM, redeploy) leaves the document
-                # at GENERATING forever with no redelivery -- Celery acks
-                # early and nothing retries.  Trusting status there would hide
-                # a perfectly good thumbnail permanently, and a rebuild would
-                # blank covers that are still on disk while the queue drains.
-                if oss.is_exist(file_prefix, processed_name):
-                    return oss.sign_url(file_prefix, processed_name)
-                return "generating"
+        is_object_storage = current_app.config["STORAGE_TYPE"] == StorageType.OSS
+
+        # 阿里云：服务端图片处理，没有独立派生对象，行为不变。
+        if is_object_storage and not requires_local_thumbnail(current_app.config):
             return oss.sign_url(file_prefix, self.save_name, process_name=process_name)
 
         save_name_prefix = self.save_name.rsplit(".", 1)[0]
         processed_name = f"{process_name}-{save_name_prefix}.webp"
-        # SUCCEEDED is the hot path and is trusted without touching storage:
-        # skipping this probe for every row is the point of the status field.
+        is_cover = process_name == current_app.config["OSS_PROCESS_COVER_NAME"]
+        backend = oss if is_cover else self.storage_backend
+
         if self.thumbnail_status == ThumbnailStatus.SUCCEEDED:
-            return oss.sign_url(file_prefix, processed_name)
-        # For every other state fall back to asking storage.  Status alone must
-        # not decide, because a worker killed mid-task (OOM, redeploy) leaves
-        # the document at GENERATING forever with no redelivery -- Celery acks
-        # early and nothing retries.  Trusting status there would hide a
-        # perfectly good thumbnail permanently.  It also keeps a rebuild from
-        # blanking covers that are still on disk while the queue drains.
-        if oss.is_exist(file_prefix, processed_name):
+            return backend.sign_url(file_prefix, processed_name)
+        # Legacy records predate the status field and kept working by always
+        # signing.  Only object storage had that fallback; local storage always
+        # probed the filesystem, so keep the distinction.
+        if is_object_storage and self.thumbnail_status == ThumbnailStatus.UNKNOWN:
+            return backend.sign_url(file_prefix, processed_name)
+        # Status alone must not decide: a worker killed mid-task (OOM,
+        # redeploy) leaves the document at GENERATING forever with no
+        # redelivery.  Probe storage instead -- one head_object per row, the
+        # same cost as before.
+        if backend.is_exist(file_prefix, processed_name):
+            return backend.sign_url(file_prefix, processed_name)
+        # 迁移前/迁移期间生成的旧重采样图还在默认存储：回退一次，别让图裂。
+        if (
+            not is_cover
+            and backend is not oss
+            and oss.is_exist(file_prefix, processed_name)
+        ):
             return oss.sign_url(file_prefix, processed_name)
         return "generating"
 
@@ -927,35 +922,32 @@ class File(Document):
     def _delete_stored_objects(self, save_names):
         """删除原图与它的派生图。
 
-        **原图/文本都跟着项目指针走，可能在存储池里；派生图一定在默认存储**
-        —— 所以不能一次 batch 删完：前者交给 ``storage_backend``，
-        派生图交给全局 ``oss``。
+        **原图与重采样图跟着项目指针走，可能在存储池里；小封面永远在默认
+        存储；校对标记图不删**（邮件里的图片链接要长期可看）。
         后端就是默认存储时仍然合成一次调用，省一次往返。
         """
         file_prefix = current_app.config["OSS_FILE_PREFIX"]
         save_names = list(save_names)
-        derived = []
+        covers = []
+        resamples = []
         if requires_local_thumbnail(current_app.config):
             for save_name in save_names:
                 stem = save_name.rsplit(".", 1)[0]
-                derived.extend(
-                    [
-                        current_app.config["OSS_PROCESS_COVER_NAME"]
-                        + "-"
-                        + stem
-                        + ".webp",
-                        current_app.config["OSS_PROCESS_RESAMPLE_NAME"]
-                        + "-"
-                        + stem
-                        + ".webp",
-                    ]
+                covers.append(
+                    current_app.config["OSS_PROCESS_COVER_NAME"] + "-" + stem + ".webp"
+                )
+                resamples.append(
+                    current_app.config["OSS_PROCESS_RESAMPLE_NAME"]
+                    + "-"
+                    + stem
+                    + ".webp"
                 )
         backend = self.storage_backend
         if backend is oss:
-            return oss.delete(file_prefix, save_names + derived)
-        result = backend.delete(file_prefix, save_names)
-        if derived:
-            oss.delete(file_prefix, derived)
+            return oss.delete(file_prefix, save_names + covers + resamples)
+        result = backend.delete(file_prefix, save_names + resamples)
+        if covers:
+            oss.delete(file_prefix, covers)
         return result
 
     @only_file

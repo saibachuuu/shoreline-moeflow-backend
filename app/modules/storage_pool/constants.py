@@ -57,6 +57,7 @@ class TransferObjectStatus(IntType):
     VERIFIED = 2
     SOURCE_DELETED = 3
     FAILED = 4
+    SKIPPED = 5  # 源对象不存在（如派生图还没生成），不搬、不删源、不算失败
 
     details = {
         "PENDING": {"name": "待搬运"},
@@ -64,23 +65,26 @@ class TransferObjectStatus(IntType):
         "VERIFIED": {"name": "已校验"},
         "SOURCE_DELETED": {"name": "源端已删"},
         "FAILED": {"name": "失败"},
+        "SKIPPED": {"name": "已跳过"},
     }
 
 
 class StorageObjectKind(StrType):
     """参与迁移的对象种类。
 
-    只搬这三类：原图、文本原文（txt）与导出产物。派生图（cover/resample/proofread）
-    永远留在默认存储，头像不搬。
+    只搬三类：原图（IMAGE）、重采样图（resample）与导出产物。
+    文本原文、小封面、校对标记图与头像永远留在默认存储。
     """
 
     ORIGINAL = "original"
     OUTPUT = "output"
-    TEXT = "text"
+    RESAMPLE = "resample"
+    TEXT = "text"  # 保留常量以兼容旧任务；新任务不再产生
 
     details = {
         "ORIGINAL": {"name": "原图"},
         "OUTPUT": {"name": "导出产物"},
+        "RESAMPLE": {"name": "重采样图"},
         "TEXT": {"name": "文本原文"},
     }
 
