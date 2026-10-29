@@ -44,9 +44,32 @@ def create_flask_app(app: Flask) -> Flask:
     return app
 
 
-def init_flask_app(app: Flask):
-    register_apis(app)
+VALID_APP_ROLES = ("web", "worker", "beat")
+
+
+def init_flask_app(app: Flask, role: str = "web"):
+    """初始化 Flask 应用。
+
+    ``role`` 决定初始化范围：
+
+    * ``web``（默认）：完整初始化，注册全部 HTTP API 蓝图；
+    * ``worker`` / ``beat``：跳过 HTTP API 蓝图注册。
+
+    Celery worker 与 beat 不提供 HTTP 服务，注册全部 API 模块只会让每个
+    prefork 子进程额外背上一份路由与 service 依赖。任务执行真正依赖的
+    模型、可选模块钩子、Babel（``lazy_gettext``）与存储客户端全部保留。
+    """
+    if role not in VALID_APP_ROLES:
+        logger.warning("未知 APP_ROLE=%s，按 web 处理", role)
+        role = "web"
+
+    if role == "web":
+        register_apis(app)
+    else:
+        logger.info("APP_ROLE=%s：跳过 HTTP API 蓝图注册", role)
+
     # 可选模块：各自注册蓝图/模型/索引。模块自带蓝图，因此 urls.py 无需改动。
+    # worker/beat 也保留这一步：storage_pool 等模块在此注册任务与 beat schedule。
     for _spec in discover_modules():
         if _spec.init is None:
             continue

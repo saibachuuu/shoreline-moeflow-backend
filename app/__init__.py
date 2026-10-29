@@ -24,6 +24,10 @@ FILE_PATH = os.path.abspath(os.path.join(APP_PATH, "..", "files"))  # 一般文�
 TMP_PATH = os.path.abspath(os.path.join(FILE_PATH, "tmp"))  # 临时文件存放地址
 STORAGE_PATH = os.path.abspath(os.path.join(APP_PATH, "..", "storage"))  # 储存地址
 
+# 进程角色：web（gunicorn，默认）／worker（celery worker）／beat（celery beat）。
+# worker 与 beat 不注册 HTTP API 蓝图，减少每个进程的常驻内存。
+APP_ROLE = os.environ.get("APP_ROLE", "web").strip().lower() or "web"
+
 # Singletons
 flask_app = create_flask_app(
     Flask(
@@ -38,7 +42,7 @@ flask_app = create_flask_app(
 )
 configure_extra_logs(flask_app)
 celery = create_celery(flask_app)
-init_flask_app(flask_app)
+init_flask_app(flask_app, role=APP_ROLE)
 
 
 def create_app():
@@ -51,6 +55,7 @@ __all__ = [
     "flask_app",
     "app_config",
     "celery",
+    "APP_ROLE",
     "APP_PATH",
     "STORAGE_PATH",
     "TMP_PATH",
