@@ -1,14 +1,16 @@
-"""按当前存储模式回填历史缺失的容量字段（缩略图 / 导出产物）。
+"""按当前存储模式回填历史缺失的容量字段（缩略图 / 重采样图 / 导出产物）。
 
-背景：``File.derived_bytes`` 与 ``Output.storage_bytes`` 是后加的增量记账
-字段，历史数据从未写入过；m0009 只回填了 ``Project.file_size``。本脚本按
-**当前存储模式**逐个对象探测实际大小并补账：
+背景：``File.cover_bytes`` / ``File.resample_bytes`` 与
+``Output.storage_bytes`` 是后加的增量记账字段，历史数据从未写入过；m0009
+只回填了 ``Project.file_size``。本脚本按**当前存储模式**逐个对象探测实际
+大小并补账：
 
-- 缩略图（cover / resample）**永远在默认存储**：``thumbnail.py`` 写死全局
-  ``oss``，项目迁入存储池后也不会变；
+- 缩略图与重采样图**永远在默认存储**：``thumbnail.py`` 写死全局 ``oss``，
+  项目迁入存储池后也不会变；
 - 导出产物跟随项目当前后端（``storage_router.backend_for(project)``）；
-- 写入时同步 ``Project.derived_bytes`` / ``output_bytes`` 与 ``file_size``，
-  口径与 ``File.apply_derived_bytes()``、``_record_output_bytes()`` 一致。
+- 写入时同步 ``Project.cover_bytes`` / ``resample_bytes`` / ``output_bytes``
+  与 ``file_size``，口径与 ``File.apply_derived_bytes()``、
+  ``_record_output_bytes()`` 一致。
 
 只处理「字段为 0 或缺失」的记录，幂等、可断点重跑；默认 dry-run（只读）。
 
@@ -57,7 +59,9 @@ def _pending_files(project_id=None, limit=None):
     query = File.objects(type=FileType.IMAGE, save_name__ne="")
     if project_id is not None:
         query = query.filter(project=project_id)
-    query = query.filter(_zero_or_missing("derived_bytes")).order_by("id")
+    query = query.filter(
+        _zero_or_missing("cover_bytes") | _zero_or_missing("resample_bytes")
+    ).order_by("id")
     if limit:
         query = query.limit(limit)
     return list(query)
@@ -104,34 +108,44 @@ def _head_size(backend, key):
 
 
 def _probe_derived(file, config):
-    """一个文件的所有缩略图大小之和；一个都不存在返回 ``None``。"""
+    """返回 ``((cover_size, resample_size), error)``。
+
+    两个对象都不存在时返回 ``(None, None)``，由调用方计入 missing。
+    """
     from app import oss
 
-    total = 0
-    found = False
-    for key in _derived_keys(file, config):
-        size, error = _head_size(oss, key)
-        if error is not None:
-            return None, error
-        if size is not None:
-            total += size
-            found = True
-    return (total if found else None), None
+    cover_key, resample_key = _derived_keys(file, config)
+    cover_size, error = _head_size(oss, cover_key)
+    if error is not None:
+        return None, error
+    resample_size, error = _head_size(oss, resample_key)
+    if error is not None:
+        return None, error
+    if cover_size is None and resample_size is None:
+        return None, None
+    return (cover_size or 0, resample_size or 0), None
 
 
 # ----------------------------------------------------------------------
 # 写库
 # ----------------------------------------------------------------------
-def _apply_derived(file, size: int) -> int:
-    """写 ``File.derived_bytes`` 并把差值汇总到项目；返回实际增量。"""
+def _apply_derived(file, cover_size: int, resample_size: int) -> tuple[int, int]:
+    """写 ``File.cover_bytes`` / ``resample_bytes`` 并把差值汇总到项目。"""
     from app.models.file import File
 
-    previous = file.derived_bytes or 0
-    if size == previous:
-        return 0
-    File.objects(id=file.id).update(set__derived_bytes=size)
-    file.apply_derived_bytes(size - previous)
-    return size - previous
+    previous_cover = file.cover_bytes or 0
+    previous_resample = file.resample_bytes or 0
+    if cover_size == previous_cover and resample_size == previous_resample:
+        return 0, 0
+    File.objects(id=file.id).update(
+        set__cover_bytes=cover_size,
+        set__resample_bytes=resample_size,
+    )
+    file.apply_derived_bytes(
+        cover_size - previous_cover,
+        resample_size - previous_resample,
+    )
+    return cover_size - previous_cover, resample_size - previous_resample
 
 
 def _apply_output(output, size: int) -> int:
@@ -188,31 +202,40 @@ def _run_derived(files, config, args, stats):
     def task_for(file):
         return file, lambda: _probe_derived(file, config)
 
-    for file, size, error in _iter_probes(
+    for file, result, error in _iter_probes(
         (task_for(file) for file in files), args.workers
     ):
         stats["scanned"] += 1
         if error is not None:
             stats["errors"] += 1
-            logger.warning("探测缩略图失败：file=%s %s", file.id, error)
+            logger.warning("探测派生图失败：file=%s %s", file.id, error)
             continue
-        if size is None:
+        if result is None:
             stats["missing"] += 1
             continue
+        cover_size, resample_size = result
         stats["found"] += 1
         if args.dry_run:
-            logger.info("[dry-run] file=%s derived=%d", file.id, size)
-            stats["bytes"] += size
-            continue
-        delta = _apply_derived(file, size)
-        if delta:
-            stats["written"] += 1
-            stats["bytes"] += delta
             logger.info(
-                "回填缩略图：file=%s derived=%d project_delta=%d",
+                "[dry-run] file=%s cover=%d resample=%d",
                 file.id,
-                size,
-                delta,
+                cover_size,
+                resample_size,
+            )
+            stats["bytes"] += cover_size + resample_size
+            continue
+        cover_delta, resample_delta = _apply_derived(file, cover_size, resample_size)
+        if cover_delta or resample_delta:
+            stats["written"] += 1
+            stats["bytes"] += cover_delta + resample_delta
+            logger.info(
+                "回填派生图：file=%s cover=%d resample=%d "
+                "project_delta_cover=%d project_delta_resample=%d",
+                file.id,
+                cover_size,
+                resample_size,
+                cover_delta,
+                resample_delta,
             )
 
 

@@ -234,9 +234,8 @@ def create_thumbnail_task(self, image_id: str, image_path=None):
 
             # 趁临时文件还在量尺寸：本地存储的落盘是「移动」（os.replace），
             # 落盘后再量就找不到文件了。
-            derived_bytes = os.path.getsize(temp_cover_path) + os.path.getsize(
-                temp_resample_path
-            )
+            cover_bytes = os.path.getsize(temp_cover_path)
+            resample_bytes = os.path.getsize(temp_resample_path)
 
             persist_started_at = time.monotonic()
             if use_object_storage:
@@ -268,12 +267,17 @@ def create_thumbnail_task(self, image_id: str, image_path=None):
 
             document = File.objects(id=image_id).first()
             if document is not None:
-                previous_derived = document.derived_bytes or 0
-                if derived_bytes != previous_derived:
+                previous_cover = document.cover_bytes or 0
+                previous_resample = document.resample_bytes or 0
+                if cover_bytes != previous_cover or resample_bytes != previous_resample:
                     File.objects(id=document.id).update(
-                        set__derived_bytes=derived_bytes
+                        set__cover_bytes=cover_bytes,
+                        set__resample_bytes=resample_bytes,
                     )
-                    document.apply_derived_bytes(derived_bytes - previous_derived)
+                    document.apply_derived_bytes(
+                        cover_bytes - previous_cover,
+                        resample_bytes - previous_resample,
+                    )
         except Exception:  # pragma: no cover - 记账失败不影响缩略图本身
             logger.warning("记录派生图占用失败：file=%s", image_id, exc_info=True)
 

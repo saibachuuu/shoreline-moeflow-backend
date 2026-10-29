@@ -13,24 +13,27 @@ class DerivedBytesTestCase(MoeTestCase):
         self.image.update(save_name="a.png")
 
     def test_apply_derived_bytes_writes_project(self):
-        self.image.apply_derived_bytes(2048)
+        self.image.apply_derived_bytes(1024, 2048)
         self.project.reload()
-        self.assertEqual(2048, self.project.derived_bytes)
-        # 项目 file_size 是 KB，顺手同步一个四舍五入的增量
-        self.assertEqual(2, self.project.file_size)
+        self.assertEqual(1024, self.project.cover_bytes)
+        self.assertEqual(2048, self.project.resample_bytes)
+        # 项目 file_size 是 KB，按两者合计同步一个四舍五入的增量
+        self.assertEqual(3, self.project.file_size)
 
     def test_regenerating_uses_delta_not_new_value(self):
-        self.image.apply_derived_bytes(2048)
-        # 重新生成后只剩 1024 字节：按差值回退，而不是再加 1024
-        self.image.apply_derived_bytes(1024 - 2048)
+        self.image.apply_derived_bytes(1024, 2048)
+        # 重新生成后缩略图 512、重采样图 512：按差值回退，而不是再加一遍
+        self.image.apply_derived_bytes(512 - 1024, 512 - 2048)
         self.project.reload()
-        self.assertEqual(1024, self.project.derived_bytes)
+        self.assertEqual(512, self.project.cover_bytes)
+        self.assertEqual(512, self.project.resample_bytes)
         self.assertEqual(1, self.project.file_size)
 
     def test_zero_delta_is_a_noop(self):
-        self.image.apply_derived_bytes(0)
+        self.image.apply_derived_bytes(0, 0)
         self.project.reload()
-        self.assertEqual(0, self.project.derived_bytes)
+        self.assertEqual(0, self.project.cover_bytes)
+        self.assertEqual(0, self.project.resample_bytes)
 
 
 class OutputReleaseTestCase(MoeTestCase):

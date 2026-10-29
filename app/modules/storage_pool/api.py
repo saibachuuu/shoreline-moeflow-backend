@@ -546,7 +546,8 @@ class UsageAPI(MoeAPIView):
                         "_id": None,
                         "projects": {"$sum": 1},
                         "file_size_kb": {"$sum": "$fs"},
-                        "derived_bytes": {"$sum": "$dvb"},
+                        "cover_bytes": {"$sum": "$cover_bytes"},
+                        "resample_bytes": {"$sum": "$resample_bytes"},
                         "output_bytes": {"$sum": "$ob"},
                     }
                 }
@@ -630,7 +631,8 @@ class UsageAPI(MoeAPIView):
             "total": {
                 "projects": int(overall.get("projects") or 0),
                 "bytes": total_bytes,
-                "derived_bytes": int(overall.get("derived_bytes") or 0),
+                "cover_bytes": int(overall.get("cover_bytes") or 0),
+                "resample_bytes": int(overall.get("resample_bytes") or 0),
                 "output_bytes": int(overall.get("output_bytes") or 0),
             },
             "pending": pending,

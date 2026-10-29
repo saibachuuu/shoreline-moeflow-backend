@@ -219,10 +219,12 @@ class File(Document):
 
     # 文件大小，单位KB，需要使用inc_cache更新
     file_size = LongField(db_field="fs", default=0)
-    # 派生图（cover/resample 两个 webp）的合计占用，单位 bytes，精确值。
+    # 派生图占用，单位 bytes，精确值。缩略图与重采样图分开统计。
     # 由 thumbnail 任务按「新值 - 旧值」写入；不参与 inc_cache —— 派生图不是
     # 原件，混进 file_size 会让上传时的 file_size-old_file_size 差值算错。
-    derived_bytes = LongField(db_field="dvb", default=0)
+    # 新字段不缩写：MongoDB 会压键名，不值得为几个字节牺牲可读性。
+    cover_bytes = LongField(default=0)
+    resample_bytes = LongField(default=0)
     file_not_exist_reason = IntField(
         db_field="fn", default=FileNotExistReason.UNKNOWN
     )  # 源文件不存在的原因
@@ -422,7 +424,8 @@ class File(Document):
         # 派生图跟着激活版走：项目账 = 新激活版 - 旧激活版。旧版的缩略图
         # 不会被删（重新激活时还能直接用），但它不再计入项目占用。
         self.apply_derived_bytes(
-            (self.derived_bytes or 0) - (old_activated_revision.derived_bytes or 0)
+            (self.cover_bytes or 0) - (old_activated_revision.cover_bytes or 0),
+            (self.resample_bytes or 0) - (old_activated_revision.resample_bytes or 0),
         )
         self.update_cache("edit_time", datetime.datetime.utcnow())
         # 更新项目翻译计数缓存
@@ -618,24 +621,26 @@ class File(Document):
             return old_cache
         return FileTargetCache(file=self, target=target).save()
 
-    def apply_derived_bytes(self, delta: int):
-        """把派生图（缩略图）占用的变化写到项目账上。
+    def apply_derived_bytes(self, cover_delta: int, resample_delta: int):
+        """把派生图（缩略图 / 重采样图）占用的变化写到项目账上。
 
-        必须直接打 ``Project``，不能走 ``inc_cache``：后者会把缩略图算进
+        必须直接打 ``Project``，不能走 ``inc_cache``：后者会把派生图算进
         ``File.file_size``，让「文件大小」不再等于原图大小，上传时
         ``file_size - old_file_size`` 的差值随之算错；而且它还会再滚一次
         项目，等于重复计数。
 
-        ``delta`` 是 bytes。项目 ``file_size`` 是 KB，顺手同步一个四舍五入
-        的增量，保证 ``file_size*1024 ≈ 原件 + derived_bytes + output_bytes``。
+        两个 ``delta`` 都是 bytes。项目 ``file_size`` 是 KB，按两者合计同步
+        一个四舍五入的增量，保证
+        ``file_size*1024 ≈ 原件 + cover_bytes + resample_bytes + output_bytes``。
         """
-        if not delta:
+        if not cover_delta and not resample_delta:
             return
         from app.models.project import Project
 
         Project.objects(id=self.project.id).update(
-            inc__derived_bytes=delta,
-            inc__file_size=round(delta / 1024),
+            inc__cover_bytes=cover_delta,
+            inc__resample_bytes=resample_delta,
+            inc__file_size=round((cover_delta + resample_delta) / 1024),
         )
 
     @need_activated
@@ -971,11 +976,13 @@ class File(Document):
             # 初始化对象，并更新缓存计数
             if init_obj:
                 # 先记下派生图占用：下面 update 会把它清零，但项目账要用旧值回退。
-                derived_bytes = self.derived_bytes or 0
+                cover_bytes = self.cover_bytes or 0
+                resample_bytes = self.resample_bytes or 0
                 self.update(
                     save_name="",
                     md5="",
-                    derived_bytes=0,
+                    cover_bytes=0,
+                    resample_bytes=0,
                     file_not_exist_reason=file_not_exist_reason,
                 )
                 # 更新缓存数据
@@ -984,8 +991,8 @@ class File(Document):
                     if self.activated:
                         self.inc_cache("file_size", -self.file_size)
                         # 派生图跟着原图一起被删掉了（_delete_stored_objects），
-                        # 项目账里的 derived_bytes 也要同步退回。
-                        self.apply_derived_bytes(-derived_bytes)
+                        # 项目账里的 cover_bytes / resample_bytes 也要同步退回。
+                        self.apply_derived_bytes(-cover_bytes, -resample_bytes)
                     else:
                         self.update(file_size=0)
                     self.update_cache("edit_time", datetime.datetime.utcnow())
@@ -1378,6 +1385,9 @@ class File(Document):
             "type": self.type,
             # 单位 KB（取整）。前端做容量徽标时 ×1024 当近似字节用，展示带「≈」。
             "file_size": self.file_size,
+            # 派生图占用（bytes，精确）。缩略图与重采样图分开，供文件级容量明细用。
+            "cover_bytes": self.cover_bytes or 0,
+            "resample_bytes": self.resample_bytes or 0,
             "source_count": self.source_count,
             "translated_source_count": self.translated_source_count,
             "checked_source_count": self.checked_source_count,

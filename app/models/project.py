@@ -394,14 +394,16 @@ class Project(GroupMixin, Document):
     folder_count = IntField(db_field="fo", required=True, default=0)  # 文件数量
     file_count = IntField(db_field="fc", required=True, default=0)  # 文件数量
     # 项目总占用，单位 KB（含派生图与导出产物的近似值）。
-    # 由 File.inc_cache 的原件增量 + 下面两个精确字节字段的增量共同维护：
-    #   file_size*1024 ≈ 原件 + derived_bytes + output_bytes
+    # 由 File.inc_cache 的原件增量 + 下面三个精确字节字段的增量共同维护：
+    #   file_size*1024 ≈ 原件 + cover_bytes + resample_bytes + output_bytes
     # 精度：KB 且四舍五入，展示时必须带「≈」，不是财务对账值。
     file_size = LongField(db_field="fs", required=True, default=0)
-    # 派生图（缩略图 cover/resample）占用，单位 bytes，精确值。
-    # 只由 thumbnail 任务按差值写入，不走 File.inc_cache —— 走它会把缩略图
+    # 派生图占用，单位 bytes，精确值。缩略图与重采样图分开统计。
+    # 只由 thumbnail 任务按差值写入，不走 File.inc_cache —— 走它会把派生图
     # 混进 File.file_size，破坏上传时 file_size-old_file_size 的差值逻辑。
-    derived_bytes = LongField(db_field="dvb", default=0)
+    # 新字段不缩写：MongoDB 会压键名，不值得为几个字节牺牲可读性。
+    cover_bytes = LongField(default=0)
+    resample_bytes = LongField(default=0)
     # 导出产物（zip / 纯文本 txt）占用，单位 bytes，精确值。
     output_bytes = LongField(db_field="ob", default=0)
     source_count = IntField(db_field="sc", required=True, default=0)  # 原文数量
@@ -1269,10 +1271,11 @@ class Project(GroupMixin, Document):
             "source_language": self.source_language.to_api(),
             "target_count": self.target_count,
             # 项目占用（体量徽标与后台用量页的数据源）。
-            # file_size 是 KB 近似值，含原件 + 派生图 + 导出产物；后两个是精确
-            # 字节数，前端用它们算占比明细：原件 = file_size*1024 - 两者之和。
+            # file_size 是 KB 近似值，含原件 + 派生图 + 导出产物；后三个是精确
+            # 字节数，前端用它们算占比明细：原件 = file_size*1024 - 三者之和。
             "file_size": self.file_size,
-            "derived_bytes": self.derived_bytes or 0,
+            "cover_bytes": self.cover_bytes or 0,
+            "resample_bytes": self.resample_bytes or 0,
             "output_bytes": self.output_bytes or 0,
             "source_count": self.source_count,
             "translated_source_count": self.translated_source_count,

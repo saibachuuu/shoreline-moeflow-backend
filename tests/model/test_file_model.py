@@ -33,15 +33,16 @@ class FileModelTestCase(MoeTestCase):
         self.tmp_project = Project.create("1", team)
 
     def assertProjectTotal(self, original_kb, project):
-        """项目总量 = 原件合计 + 派生图（缩略图）。
+        """项目总量 = 原件合计 + 派生图（缩略图 + 重采样图）。
 
         派生图是这一版才纳入项目占用的，且按文件逐个 KB 四舍五入累加，
-        所以和「原件 + derived_bytes/1024」允许几 KB 的取整误差。
+        所以和「原件 + (cover_bytes + resample_bytes)/1024」允许几 KB 的取整误差。
         """
 
         project.reload()
         self.assertAlmostEqual(
-            original_kb + project.derived_bytes / 1024,
+            original_kb
+            + (project.cover_bytes + project.resample_bytes) / 1024,
             project.file_size,
             delta=3,
         )

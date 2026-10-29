@@ -701,14 +701,18 @@ class UsageApiTestCase(MoeAPITestCase):
     def test_usage_sums_project_sizes(self):
         project = self.create_project("usage-project")
         Project.objects(id=project.id).update(
-            set__file_size=2048, set__derived_bytes=100, set__output_bytes=200
+            set__file_size=2048,
+            set__cover_bytes=60,
+            set__resample_bytes=40,
+            set__output_bytes=200,
         )
         response = self.get("/v1/admin/storage-pool/usage", token=self.token)
         self.assertErrorEqual(response)
         payload = response.json
         self.assertEqual(1, payload["total"]["projects"])
         self.assertEqual(2048 * 1024, payload["total"]["bytes"])
-        self.assertEqual(100, payload["total"]["derived_bytes"])
+        self.assertEqual(60, payload["total"]["cover_bytes"])
+        self.assertEqual(40, payload["total"]["resample_bytes"])
         self.assertEqual(200, payload["total"]["output_bytes"])
         self.assertEqual(1, payload["pending"]["projects"])
         self.assertEqual(0, payload["migrated_projects"])
