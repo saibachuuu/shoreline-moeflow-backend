@@ -103,6 +103,14 @@ from app.apis.manga_image_translator import (
     MitTranslateTaskApi,
 )
 from app import app_config
+from app.apis.label_snapshot import (
+    ProjectSnapshotListAPI,
+    ProjectSnapshotRestoreAPI,
+    ProjectLabelStateAPI,
+    ProjectLabelClearAPI,
+    ProjectLabelMergeAPI,
+    ProjectLabelRecoverAPI,
+)
 
 v1_prefix = "/v1"
 # api主页
@@ -393,6 +401,19 @@ term.add_url_rule(
 )
 # 项目模块
 project = Blueprint("project", __name__, url_prefix=v1_prefix + "/projects")
+for suffix, view, methods in (
+    ("snapshots", ProjectSnapshotListAPI, ["GET", "POST"]),
+    ("snapshots/<snapshot_id>/restore", ProjectSnapshotRestoreAPI, ["POST"]),
+    ("label-state", ProjectLabelStateAPI, ["GET"]),
+    ("label-clear", ProjectLabelClearAPI, ["POST"]),
+    ("label-merge", ProjectLabelMergeAPI, ["GET", "POST"]),
+    ("label-recover", ProjectLabelRecoverAPI, ["POST"]),
+):
+    project.add_url_rule(
+        "/<project_id>/" + suffix,
+        methods=methods + ["OPTIONS"],
+        view_func=view.as_view(view.__name__),
+    )
 project.add_url_rule(
     "/<project_id>",
     methods=["GET", "PUT", "OPTIONS"],

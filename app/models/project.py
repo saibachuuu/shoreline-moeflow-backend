@@ -432,6 +432,8 @@ class Project(GroupMixin, Document):
     # （migrate / restore / move 全拦），解锁后才能再挪。
     # 默认 False，不影响存量项目。
     storage_pool_locked = BooleanField(db_field="splk", default=False)
+    label_revision = LongField(default=0)
+    label_recovery = ObjectIdField(null=True)
 
     # == GroupMixin ==
     default_role_system_code = "translator"

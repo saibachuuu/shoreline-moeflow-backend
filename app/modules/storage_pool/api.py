@@ -300,7 +300,7 @@ class TransferListAPI(MoeAPIView):
         from bson.errors import InvalidId
 
         p = MoePagination()
-        query = StorageTransfer.objects().order_by("-create_time")
+        query = StorageTransfer.objects().order_by("-create_time", "-id")
         project_id = request.args.get("project_id")
         if project_id:
             # 格式不对直接返回空列表，不 500 —— 前端传参拼错时好排查。
@@ -308,8 +308,53 @@ class TransferListAPI(MoeAPIView):
                 query = query.filter(project=ObjectId(project_id))
             except InvalidId:
                 query = query.filter(id__in=[])
-        transfers = query
+        transfers = query.skip(p.skip).limit(p.limit)
+        from .transfer import _recompute_counters
+
+        for transfer in transfers:
+            _recompute_counters(transfer)
         return p.set_objects(transfers)
+
+
+class TransferCancelAPI(MoeAPIView):
+    @admin_required
+    def post(self, transfer_id):
+        transfer = StorageTransfer.objects(id=transfer_id).first()
+        if not transfer:
+            raise TransferInProgressError("迁移记录不存在")
+        # Competes atomically with worker PENDING -> COPYING. A running
+        # transfer cannot be cancelled: its pointer may already be switching.
+        cancelled = StorageTransfer.objects(
+            id=transfer.id, status=TransferStatus.PENDING
+        ).update_one(
+            set__status=TransferStatus.CANCELLED,
+            set__finish_time=datetime.datetime.utcnow(),
+            set__last_error="管理员取消排队任务",
+        )
+        if not cancelled:
+            raise TransferInProgressError("只能删除尚未开始的排队任务，请刷新后重试")
+        return {"cancelled": True}
+
+
+class TransferDeleteAPI(MoeAPIView):
+    @admin_required
+    def delete(self, transfer_id):
+        from mongoengine.connection import get_db
+
+        transfer = StorageTransfer.objects(id=transfer_id).first()
+        if not transfer:
+            return {"deleted": True}
+        if transfer.status not in (TransferStatus.CANCELLED, TransferStatus.DONE):
+            raise TransferInProgressError(
+                "只允许删除已取消或已完成的记录，失败记录需保留用于续跑及残留清理"
+            )
+        if transfer.status == TransferStatus.DONE and transfer.last_error:
+            raise TransferInProgressError("该记录还有源端残留警告，请保留用于人工清理")
+        if get_db().storage_transfer_run_lock.find_one({"_id": transfer.pk}):
+            raise TransferInProgressError("worker 尚未退出，请稍后删除")
+        StorageTransferObject.objects(transfer=transfer).delete()
+        transfer.delete()
+        return {"deleted": True}
 
 
 class ProjectMigrateAPI(MoeAPIView):
@@ -791,6 +836,16 @@ blueprint.add_url_rule(
     "/transfers/<transfer_id>/retry",
     methods=["POST", "OPTIONS"],
     view_func=TransferRetryAPI.as_view("transfer_retry"),
+)
+blueprint.add_url_rule(
+    "/transfers/<transfer_id>/cancel",
+    methods=["POST", "OPTIONS"],
+    view_func=TransferCancelAPI.as_view("transfer_cancel"),
+)
+blueprint.add_url_rule(
+    "/transfers/<transfer_id>",
+    methods=["DELETE", "OPTIONS"],
+    view_func=TransferDeleteAPI.as_view("transfer_delete"),
 )
 blueprint.add_url_rule(
     "/projects/<project_id>/migrate",

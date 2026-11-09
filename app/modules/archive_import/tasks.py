@@ -21,6 +21,7 @@ from celery.utils.log import get_task_logger
 
 from app import TMP_PATH, celery
 from app.models import connect_db
+from app.services.label_lock import capture_label_revision, label_job_task
 from app.tasks import SyncResult, _FORCE_SYNC_TASK
 from app.utils.secrets import decrypt_secret
 
@@ -225,7 +226,8 @@ def _zip_image_entries(zip_path: str, max_entries: int):
 
 
 @celery.task(name="tasks.archive_import_task")
-def archive_import_task(project_id, gid, token, task_id=None):
+@label_job_task("project")
+def archive_import_task(project_id, gid, token, task_id=None, label_revision=None):
     """任务主体：解析直链 → 下载 → 校验 → 导入。"""
     from app.models.file import Filename
     from app.models.project import Project
@@ -443,11 +445,29 @@ def import_archive_from_gallery(
 ):
     """触发归档导入：测试强制同步；broker 不可达时回退同步执行。"""
     if _FORCE_SYNC_TASK or run_sync:
-        archive_import_task(project_id, gid, token, task_id)
+        archive_import_task(
+            project_id,
+            gid,
+            token,
+            task_id,
+            label_revision=capture_label_revision(project_id),
+        )
         return SyncResult()
     try:
-        return archive_import_task.delay(project_id, gid, token, task_id)
+        return archive_import_task.delay(
+            project_id,
+            gid,
+            token,
+            task_id,
+            label_revision=capture_label_revision(project_id),
+        )
     except Exception:
         logger.exception("Failed to queue archive import; running synchronously")
-        archive_import_task(project_id, gid, token, task_id)
+        archive_import_task(
+            project_id,
+            gid,
+            token,
+            task_id,
+            label_revision=capture_label_revision(project_id),
+        )
         return SyncResult()

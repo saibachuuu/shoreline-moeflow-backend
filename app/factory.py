@@ -65,6 +65,9 @@ def init_flask_app(app: Flask, role: str = "web"):
 
     if role == "web":
         register_apis(app)
+        from app.services.label_lock import install_label_request_guard
+
+        install_label_request_guard(app)
     else:
         logger.info("APP_ROLE=%s：跳过 HTTP API 蓝图注册", role)
 

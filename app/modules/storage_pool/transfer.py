@@ -14,6 +14,9 @@
 
 import datetime
 import logging
+import math
+import time
+from uuid import uuid4
 
 from flask import current_app
 
@@ -23,6 +26,8 @@ from app.constants.project import ProjectStatus
 from app.models.file import File
 from app.models.output import Output
 from app.models.project import Project
+from app.services.label_lock import LabelBusyError, label_lock
+from app.services.project_statistics import rebuild_project_statistics
 
 from .backend import PoolBackend, S3Transfer
 from .constants import (
@@ -189,6 +194,26 @@ def _build_object_rows(transfer, kinds) -> None:
 # 执行
 # ----------------------------------------------------------------------
 def run(transfer_id):
+    """Only one worker may advance a transfer, including continuation tasks."""
+    from bson import ObjectId
+    from mongoengine.connection import get_db
+    from pymongo.errors import DuplicateKeyError
+
+    locks = get_db().storage_transfer_run_lock
+    tid, owner = ObjectId(transfer_id), uuid4().hex
+    try:
+        locks.insert_one(
+            {"_id": tid, "owner": owner, "created": datetime.datetime.utcnow()}
+        )
+    except DuplicateKeyError:
+        return "跳过：已有 worker 正在执行"
+    try:
+        return _run(transfer_id)
+    finally:
+        locks.delete_one({"_id": tid, "owner": owner})
+
+
+def _run(transfer_id):
     """执行任务到「下一个稳定状态」。可反复调用（重试即续跑）。"""
     transfer = StorageTransfer.objects(id=transfer_id).first()
     if transfer is None:
@@ -199,7 +224,7 @@ def run(transfer_id):
     # PENDING → COPYING（原子，防止并发重复领取）
     claimed = StorageTransfer.objects(
         id=transfer.id,
-        status__in=[TransferStatus.PENDING] + list(TransferStatus.RETRYABLE),
+        status=TransferStatus.PENDING,
     ).update_one(
         set__status=TransferStatus.COPYING,
         set__start_time=transfer.start_time or datetime.datetime.utcnow(),
@@ -337,15 +362,27 @@ def _recompute_counters(transfer):
     copied_bytes = 0
     origin_bytes = 0
     output_bytes = 0
+    processed_objects = skipped_objects = verified_objects = deleted_objects = 0
     rows = StorageTransferObject.objects(
         transfer=transfer,
-        status__in=[
+    )
+    for row in rows:
+        if row.status == TransferObjectStatus.SKIPPED:
+            skipped_objects += 1
+            processed_objects += 1
+            continue
+        if row.status not in (
             TransferObjectStatus.COPIED,
             TransferObjectStatus.VERIFIED,
             TransferObjectStatus.SOURCE_DELETED,
-        ],
-    )
-    for row in rows:
+        ):
+            continue
+        processed_objects += 1
+        verified_objects += row.status in (
+            TransferObjectStatus.VERIFIED,
+            TransferObjectStatus.SOURCE_DELETED,
+        )
+        deleted_objects += row.status == TransferObjectStatus.SOURCE_DELETED
         size = row.size or 0
         copied_objects += 1
         copied_bytes += size
@@ -364,12 +401,17 @@ def _recompute_counters(transfer):
     StorageTransfer.objects(id=transfer.id).update_one(
         set__copied_objects=copied_objects,
         set__copied_bytes=copied_bytes,
+        set__processed_objects=processed_objects,
+        set__skipped_objects=skipped_objects,
+        set__verified_objects=verified_objects,
+        set__deleted_objects=deleted_objects,
         set__breakdown=TransferBreakdown(
             origin_bytes=origin_bytes,
             output_bytes=output_bytes,
             object_count=copied_objects,
         ),
     )
+    transfer.reload()
 
 
 def _is_not_found(error) -> bool:
@@ -409,11 +451,15 @@ def _copy_objects(transfer, src, dst, source):
     ).order_by("id")
 
     moved = 0
-    for row in pending_qs.limit(limit):
+    last_progress = time.monotonic()
+    for index, row in enumerate(pending_qs.limit(limit)):
+        if index and (index % 25 == 0 or time.monotonic() - last_progress >= 2):
+            _recompute_counters(transfer)
+            last_progress = time.monotonic()
         try:
             size, etag = S3Transfer(src, dst).transfer(row.src_key, size=row.size)
         except Exception as error:
-            if _is_not_found(error):
+            if _is_not_found(error) and row.kind == StorageObjectKind.RESAMPLE:
                 # 派生图还没生成：跳过，不删源、不算失败。
                 StorageTransferObject.objects(
                     id=row.id, status=TransferObjectStatus.PENDING
@@ -509,6 +555,14 @@ def _verify_objects(transfer, dst):
 
 
 def _switch_pointer(transfer, project, source):
+    try:
+        with label_lock(project.pk):
+            return _switch_pointer_locked(transfer, project, source)
+    except LabelBusyError:
+        return False, "项目标签正在操作，稍后重试", True
+
+
+def _switch_pointer_locked(transfer, project, source):
     """★ 切指针。锁内二次确认清单，再改 ``Project.storage_source_id``。
 
     返回 ``(是否切换成功, 原因, 可否直接重试)``。第三项用来区分两件事：
@@ -568,6 +622,7 @@ def _switch_pointer(transfer, project, source):
                 return True, "", False
             if str(current_id) != str(source.id):
                 return False, "项目已被其他任务迁移，已中止", False
+        _refresh_project_metrics(transfer, project)
         Project.objects(id=project.id).update(
             set__storage_source_id=target_id,
             set__storage_source_switched_time=datetime.datetime.utcnow(),
@@ -576,6 +631,49 @@ def _switch_pointer(transfer, project, source):
         return True, "", False
     finally:
         StoragePoolLock.release(project.id, owner=owner)
+
+
+def _refresh_project_metrics(transfer, project):
+    """Correct actual object sizes plus logical caches before pointer switch."""
+    file_prefix = current_app.config["OSS_FILE_PREFIX"]
+    output_prefix = current_app.config["OSS_OUTPUT_PREFIX"]
+    resample_prefix = f"{file_prefix}{current_app.config['OSS_PROCESS_RESAMPLE_NAME']}-"
+    sizes = {
+        row.src_key: row.size
+        for row in StorageTransferObject.objects(
+            transfer=transfer,
+            status__in=(
+                TransferObjectStatus.VERIFIED,
+                TransferObjectStatus.SOURCE_DELETED,
+            ),
+        )
+    }
+    missing_resamples = set(
+        StorageTransferObject.objects(
+            transfer=transfer,
+            status=TransferObjectStatus.SKIPPED,
+            kind=StorageObjectKind.RESAMPLE,
+        ).scalar("src_key")
+    )
+    for file in File.objects(project=project, type=FileType.IMAGE):
+        original = file_prefix + file.save_name
+        resample = f"{resample_prefix}{file.save_name.rsplit('.', 1)[0]}.webp"
+        fields = {}
+        if original in sizes:
+            fields["fs"] = math.ceil(sizes[original] / 1024)
+        if resample in sizes:
+            fields["resample_bytes"] = sizes[resample]
+        elif resample in missing_resamples:
+            fields["resample_bytes"] = 0
+        if fields:
+            File._get_collection().update_one({"_id": file.pk}, {"$set": fields})
+    for output in Output.objects(project=project, file_name__gt=""):
+        key = output_prefix + str(output.pk) + "/" + output.file_name
+        if key in sizes:
+            Output._get_collection().update_one(
+                {"_id": output.pk}, {"$set": {"sb": sizes[key]}}
+            )
+    rebuild_project_statistics(project)
 
 
 def _delete_source_objects(transfer, src):

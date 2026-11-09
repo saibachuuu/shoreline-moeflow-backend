@@ -5,14 +5,15 @@
 只回填了 ``Project.file_size``。本脚本按**当前存储模式**逐个对象探测实际
 大小并补账：
 
-- 缩略图与重采样图**永远在默认存储**：``thumbnail.py`` 写死全局 ``oss``，
-  项目迁入存储池后也不会变；
+- 缩略图留在默认存储，重采样图跟随项目，404 时兼容历史默认存储；
 - 导出产物跟随项目当前后端（``storage_router.backend_for(project)``）；
 - 写入时同步 ``Project.cover_bytes`` / ``resample_bytes`` / ``output_bytes``
   与 ``file_size``，口径与 ``File.apply_derived_bytes()``、
   ``_record_output_bytes()`` 一致。
 
-只处理「字段为 0 或缺失」的记录，幂等、可断点重跑；默认 dry-run（只读）。
+默认只补缺失字段；--recalculate 可校正非零值。项目总量按原件、派生图、
+导出产物绝对聚合，避免逐笔取整漂移；--only totals 可只校正汇总。
+默认 dry-run（只读），探测失败不会将已有容量归零。
 
 用法::
 
@@ -52,28 +53,32 @@ def _zero_or_missing(field: str) -> Q:
     return Q(**{field: 0}) | Q(**{f"{field}__exists": False})
 
 
-def _pending_files(project_id=None, limit=None):
+def _pending_files(project_id=None, limit=None, recalculate=False):
     from app.constants.file import FileType
     from app.models.file import File
 
     query = File.objects(type=FileType.IMAGE, save_name__ne="")
     if project_id is not None:
         query = query.filter(project=project_id)
-    query = query.filter(
-        _zero_or_missing("cover_bytes") | _zero_or_missing("resample_bytes")
-    ).order_by("id")
+    if not recalculate:
+        query = query.filter(
+            _zero_or_missing("cover_bytes") | _zero_or_missing("resample_bytes")
+        )
+    query = query.order_by("id")
     if limit:
         query = query.limit(limit)
     return list(query)
 
 
-def _pending_outputs(project_id=None, limit=None):
+def _pending_outputs(project_id=None, limit=None, recalculate=False):
     from app.models.output import Output
 
     query = Output.objects(file_name__gt="")
     if project_id is not None:
         query = query.filter(project=project_id)
-    query = query.filter(_zero_or_missing("storage_bytes")).order_by("id")
+    if not recalculate:
+        query = query.filter(_zero_or_missing("storage_bytes"))
+    query = query.order_by("id")
     if limit:
         query = query.limit(limit)
     return list(query)
@@ -107,7 +112,7 @@ def _head_size(backend, key):
     return int(meta.get("size") or 0), None
 
 
-def _probe_derived(file, config):
+def _probe_derived(file, config, resample_backend=None):
     """返回 ``((cover_size, resample_size), error)``。
 
     两个对象都不存在时返回 ``(None, None)``，由调用方计入 missing。
@@ -118,12 +123,16 @@ def _probe_derived(file, config):
     cover_size, error = _head_size(oss, cover_key)
     if error is not None:
         return None, error
-    resample_size, error = _head_size(oss, resample_key)
+    resample_backend = resample_backend or file.storage_backend
+    resample_size, error = _head_size(resample_backend, resample_key)
+    if error is None and resample_size is None and resample_backend is not oss:
+        resample_size, error = _head_size(oss, resample_key)
     if error is not None:
         return None, error
     if cover_size is None and resample_size is None:
         return None, None
-    return (cover_size or 0, resample_size or 0), None
+    # A missing object is not evidence that its existing byte counter is zero.
+    return (cover_size, resample_size), None
 
 
 # ----------------------------------------------------------------------
@@ -132,19 +141,20 @@ def _probe_derived(file, config):
 def _apply_derived(file, cover_size: int, resample_size: int) -> tuple[int, int]:
     """写 ``File.cover_bytes`` / ``resample_bytes`` 并把差值汇总到项目。"""
     from app.models.file import File
+    from app.services.label_lock import label_lock
 
     previous_cover = file.cover_bytes or 0
     previous_resample = file.resample_bytes or 0
     if cover_size == previous_cover and resample_size == previous_resample:
         return 0, 0
-    File.objects(id=file.id).update(
-        set__cover_bytes=cover_size,
-        set__resample_bytes=resample_size,
-    )
-    file.apply_derived_bytes(
-        cover_size - previous_cover,
-        resample_size - previous_resample,
-    )
+    with label_lock(file.project.pk):
+        current = File.objects(id=file.pk, save_name=file.save_name).first()
+        if (
+            not current
+            or current.project.storage_source_id != file.project.storage_source_id
+        ):
+            raise RuntimeError("探测期间文件或项目存储来源已改变，请重新运行")
+        current.update(set__cover_bytes=cover_size, set__resample_bytes=resample_size)
     return cover_size - previous_cover, resample_size - previous_resample
 
 
@@ -152,16 +162,21 @@ def _apply_output(output, size: int) -> int:
     """写 ``Output.storage_bytes`` 并把差值汇总到项目；返回实际增量。"""
     from app.models.output import Output
     from app.models.project import Project
+    from app.services.label_lock import label_lock
 
     previous = output.storage_bytes or 0
     if size == previous:
         return 0
     delta = size - previous
-    Output.objects(id=output.id).update(set__storage_bytes=size)
-    Project.objects(id=output.project.id).update(
-        inc__output_bytes=delta,
-        inc__file_size=round(delta / 1024),
-    )
+    with label_lock(output.project.pk):
+        if (
+            Project.objects(id=output.project.pk).first().storage_source_id
+            != output.project.storage_source_id
+        ):
+            raise RuntimeError("探测期间项目存储来源已改变，请重新运行")
+        Output.objects(id=output.id, file_name=output.file_name).update(
+            set__storage_bytes=size
+        )
     return delta
 
 
@@ -197,10 +212,18 @@ def _iter_probes(tasks, workers):
 
 
 def _run_derived(files, config, args, stats):
+    from app import oss
+    from app.services import storage_router
+
     logger.info("待补缩略图账：%d 个文件", len(files))
+    backends = {}
 
     def task_for(file):
-        return file, lambda: _probe_derived(file, config)
+        key = str(file.project.storage_source_id or "")
+        if key not in backends:
+            backends[key] = storage_router.backend_for(file.project) or oss
+        backend = backends[key]
+        return file, lambda: _probe_derived(file, config, backend)
 
     for file, result, error in _iter_probes(
         (task_for(file) for file in files), args.workers
@@ -214,6 +237,8 @@ def _run_derived(files, config, args, stats):
             stats["missing"] += 1
             continue
         cover_size, resample_size = result
+        cover_size = file.cover_bytes if cover_size is None else cover_size
+        resample_size = file.resample_bytes if resample_size is None else resample_size
         stats["found"] += 1
         if args.dry_run:
             logger.info(
@@ -322,9 +347,12 @@ def _parse_args(argv):
     )
     parser.add_argument(
         "--only",
-        choices=("all", "derived", "output"),
+        choices=("all", "derived", "output", "totals"),
         default="all",
         help="只处理某一类（默认 all）",
+    )
+    parser.add_argument(
+        "--recalculate", action="store_true", help="也探测并校正已有的非零容量"
     )
     parser.add_argument(
         "--limit",
@@ -377,7 +405,11 @@ def main(argv=None) -> int:
         if args.only in ("all", "derived"):
             stats = _empty_stats()
             _run_derived(
-                _pending_files(project_id=project_id, limit=args.limit or None),
+                _pending_files(
+                    project_id=project_id,
+                    limit=args.limit or None,
+                    recalculate=args.recalculate,
+                ),
                 config,
                 args,
                 stats,
@@ -386,13 +418,45 @@ def main(argv=None) -> int:
         if args.only in ("all", "output"):
             stats = _empty_stats()
             _run_output(
-                _pending_outputs(project_id=project_id, limit=args.limit or None),
+                _pending_outputs(
+                    project_id=project_id,
+                    limit=args.limit or None,
+                    recalculate=args.recalculate,
+                ),
                 config,
                 args,
                 stats,
             )
             _log_summary("output", stats)
+        _run_totals(project_id, apply=not args.dry_run)
     return 0
+
+
+def _run_totals(project_id=None, *, apply=False):
+    """Aggregate recorded bytes, including every derivative and saved output."""
+    from app.models.project import Project
+    from app.services.label_lock import label_lock
+    from app.services.project_statistics import rebuild_project_statistics
+
+    query = Project.objects(id=project_id) if project_id else Project.objects()
+    total_bytes = 0
+    for project in query:
+        with label_lock(project.pk):
+            totals = rebuild_project_statistics(project, apply=apply)
+        total_bytes += totals["total_bytes"]
+        logger.info(
+            "%s project=%s total_bytes=%d cover_bytes=%d resample_bytes=%d output_bytes=%d",
+            "apply" if apply else "[dry-run 数据库已记录容量]",
+            project.pk,
+            totals["total_bytes"],
+            totals["cover_bytes"],
+            totals["resample_bytes"],
+            totals["output_bytes"],
+        )
+    logger.info(
+        "total_bytes=%d（原件 + 派生图 + 导出产物；原件仍为历史 KB 精度）", total_bytes
+    )
+    return total_bytes
 
 
 if __name__ == "__main__":

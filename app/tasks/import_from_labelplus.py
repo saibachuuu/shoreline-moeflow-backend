@@ -16,12 +16,14 @@ from celery.utils.log import get_task_logger
 from app.utils.labelplus import load_from_labelplus
 from app.constants.source import SourcePositionType
 from celery.result import AsyncResult
+from app.services.label_lock import capture_label_revision, label_job_task
 
 logger = get_task_logger(__name__)
 
 
 @celery.task(name="tasks.import_from_labelplus_task")
-def import_from_labelplus_task(project_id):
+@label_job_task("project")
+def import_from_labelplus_task(project_id, label_revision=None):
     """
     压缩整个项目
 
@@ -104,14 +106,20 @@ def import_from_labelplus(project_id, /, *, run_sync=False) -> SyncResult | Asyn
     # optional Celery stack is not running.
     if run_sync or _FORCE_SYNC_TASK:
         # 同步执行
-        import_from_labelplus_task(project_id)
+        import_from_labelplus_task(
+            project_id, label_revision=capture_label_revision(project_id)
+        )
         return SyncResult()
     try:
         alive_workers = celery.control.ping()
     except Exception:
         alive_workers = []
     if len(alive_workers) == 0:
-        import_from_labelplus_task(project_id)
+        import_from_labelplus_task(
+            project_id, label_revision=capture_label_revision(project_id)
+        )
         return SyncResult()
     # 异步执行
-    return import_from_labelplus_task.delay(project_id)
+    return import_from_labelplus_task.delay(
+        project_id, label_revision=capture_label_revision(project_id)
+    )

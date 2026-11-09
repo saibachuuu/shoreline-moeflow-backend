@@ -17,6 +17,7 @@ class TransferStatus(IntType):
     DONE = 4  # 源端已清理
     FAILED = 5  # 出错，可重试
     ABORTED = 6  # 并发写入等原因主动中止，可重试
+    CANCELLED = 7  # 排队阶段主动取消，不可重试
 
     details = {
         "PENDING": {"name": "待执行"},
@@ -26,6 +27,7 @@ class TransferStatus(IntType):
         "DONE": {"name": "已完成"},
         "FAILED": {"name": "失败"},
         "ABORTED": {"name": "已中止"},
+        "CANCELLED": {"name": "已取消"},
     }
 
     #: 还占着「这个项目正在迁移」这个坑的状态。

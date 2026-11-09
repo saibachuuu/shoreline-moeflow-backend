@@ -156,6 +156,10 @@ class StorageTransfer(Document):
     snapshot_edit_time = DateTimeField(db_field="set")
     total_objects = IntField(db_field="to", default=0)
     copied_objects = IntField(db_field="co", default=0)
+    processed_objects = IntField(db_field="processed", default=0)
+    skipped_objects = IntField(db_field="skipped", default=0)
+    verified_objects = IntField(db_field="verified", default=0)
+    deleted_objects = IntField(db_field="deleted", default=0)
     total_bytes = LongField(db_field="tb", default=0)
     copied_bytes = LongField(db_field="cb", default=0)
     breakdown = EmbeddedDocumentField(TransferBreakdown, db_field="bd", default=None)
@@ -173,14 +177,23 @@ class StorageTransfer(Document):
         "indexes": [
             ("project", "source"),
             "status",
+            ("-create_time", "-id"),
         ],
     }
 
     @property
     def progress_percent(self) -> int:
+        if self.status == TransferStatus.DONE:
+            return 100
         if not self.total_objects:
-            return 0
-        return min(100, int(self.copied_objects * 100 / self.total_objects))
+            return 95 if self.status == TransferStatus.SWITCHED else 0
+        copied = min(90, int(self.processed_objects * 90 / self.total_objects))
+        real_objects = max(1, self.total_objects - self.skipped_objects)
+        if self.status == TransferStatus.SWITCHED:
+            return min(99, 95 + int(self.deleted_objects * 4 / real_objects))
+        if self.status == TransferStatus.VERIFIED:
+            return min(94, 90 + int(self.verified_objects * 4 / real_objects))
+        return copied
 
     def to_api(self):
         project = self.project
@@ -216,6 +229,10 @@ class StorageTransfer(Document):
             ),
             "total_objects": self.total_objects,
             "copied_objects": self.copied_objects,
+            "processed_objects": self.processed_objects,
+            "skipped_objects": self.skipped_objects,
+            "verified_objects": self.verified_objects,
+            "deleted_objects": self.deleted_objects,
             "total_bytes": self.total_bytes,
             "copied_bytes": self.copied_bytes,
             "breakdown": self.breakdown.to_api()

@@ -6,7 +6,6 @@ from mongoengine import (
     CASCADE,
     DENY,
     DateTimeField,
-    Document,
     IntField,
     ReferenceField,
     StringField,
@@ -16,12 +15,13 @@ from app.models.language import Language
 from app.models.output import Output
 from typing import TYPE_CHECKING
 from app.exceptions import SameTargetLanguageError
+from app.services.label_lock import LabelDocument, protect_methods
 
 if TYPE_CHECKING:
     from app.models.project import Project
 
 
-class Target(Document):
+class Target(LabelDocument):
     """项目的目标语言，用于储存语言相关的Cache和其他信息"""
 
     project = ReferenceField("Project", db_field="t", required=True)
@@ -93,3 +93,4 @@ class Target(Document):
 
 
 Target.register_delete_rule(Output, "target", CASCADE)
+protect_methods(Target, ("clear",))

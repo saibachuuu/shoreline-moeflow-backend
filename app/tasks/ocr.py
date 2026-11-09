@@ -13,6 +13,7 @@ from app import celery, gs_vision, oss
 from app.constants.file import FileType, ImageOCRPercent, ParseErrorType, ParseStatus
 from app.models import connect_db
 from app.tasks import SyncResult
+from app.services.label_lock import capture_label_revision, label_job_task
 from app.utils.logging import logger
 from PIL import Image, ImageDraw
 from PIL.Image import Image as ImageCls
@@ -577,7 +578,8 @@ def merge_and_ocr(parsing_images, /, *, parse_alone=False):
 
 
 @celery.task(name="tasks.ocr_task")
-def ocr_task(type, id):
+@label_job_task("ocr")
+def ocr_task(type, id, label_revision=None):
     """
     调用谷歌文本识别API，解析图片中的文件，并转化成Source
 
@@ -632,10 +634,12 @@ def ocr_task(type, id):
 
 def ocr(type: str, id: str, /, *, run_sync=False):
     if run_sync:
-        ocr_task(type, id)
+        ocr_task(type, id, label_revision=capture_label_revision(id))
         return SyncResult
     else:
-        return ocr_task.apply_async((type, id))
+        return ocr_task.apply_async(
+            (type, id), kwargs={"label_revision": capture_label_revision(id)}
+        )
 
 
 def recover_ocr_tasks():

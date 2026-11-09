@@ -18,10 +18,12 @@ from app.constants.file import (
 )
 from app.utils.logging import logger
 from . import SyncResult
+from app.services.label_lock import capture_label_revision, label_job_task
 
 
 @celery.task(name="tasks.parse_text_task", time_limit=1200)
-def parse_text_task(file_id, old_revision_id=None):
+@label_job_task("file")
+def parse_text_task(file_id, old_revision_id=None, label_revision=None):
     """
     将文本解析成Source
 
@@ -109,15 +111,24 @@ def parse_text_task(file_id, old_revision_id=None):
 def parse_text(file_id, /, *, old_revision_id=None, run_sync=False):
     if run_sync:
         # 同步执行
-        parse_text_task(file_id, old_revision_id)
+        parse_text_task(
+            file_id,
+            old_revision_id,
+            label_revision=capture_label_revision(file_id, file=True),
+        )
         return SyncResult()
     else:
         # 异步执行
-        return parse_text_task.delay(file_id, old_revision_id)
+        return parse_text_task.delay(
+            file_id,
+            old_revision_id,
+            label_revision=capture_label_revision(file_id, file=True),
+        )
 
 
 @celery.task(name="tasks.find_terms_task", time_limit=1200)
-def find_terms_task(file_id):
+@label_job_task("file")
+def find_terms_task(file_id, label_revision=None):
     """
     为文件的source寻找术语
 
@@ -159,8 +170,12 @@ def find_terms_task(file_id):
 def find_terms(file_id, /, *, run_sync=False):
     if run_sync:
         # 同步执行
-        find_terms_task(file_id)
+        find_terms_task(
+            file_id, label_revision=capture_label_revision(file_id, file=True)
+        )
         return SyncResult()
     else:
         # 异步执行
-        return find_terms_task.delay(file_id)
+        return find_terms_task.delay(
+            file_id, label_revision=capture_label_revision(file_id, file=True)
+        )

@@ -18,7 +18,6 @@ from mongoengine import (
     PULL,
     BooleanField,
     DateTimeField,
-    Document,
     FloatField,
     IntField,
     ListField,
@@ -30,6 +29,7 @@ from mongoengine import (
 from app import oss
 from app.constants.storage import StorageType, requires_local_thumbnail
 from app.services import storage_router
+from app.services.label_lock import LabelDocument, protect_methods
 from app.core.responses import MoePagination
 from app.decorators.file import need_activated, only, only_file
 from app.exceptions import (
@@ -190,7 +190,7 @@ class Filename:
         return sort_name
 
 
-class File(Document):
+class File(LabelDocument):
     """文件"""
 
     # == 基本信息 ==
@@ -1420,7 +1420,7 @@ class File(Document):
         return data
 
 
-class FileTargetCache(Document):
+class FileTargetCache(LabelDocument):
     """文件对于不同目标语言的计数缓存"""
 
     file: "File" = ReferenceField(
@@ -1448,7 +1448,7 @@ class FileTargetCache(Document):
         return data
 
 
-class Source(Document):
+class Source(LabelDocument):
     file: "File" = ReferenceField("File", db_field="f", reverse_delete_rule=CASCADE)
     rank = IntField(db_field="r", required=True)  # 排序
     content = StringField(db_field="c", default="")  # 内容
@@ -1692,7 +1692,7 @@ class Source(Document):
         }
 
 
-class Translation(Document):
+class Translation(LabelDocument):
     source = ReferenceField(
         "Source", db_field="o", required=True, reverse_delete_rule=CASCADE
     )  # 所属原文
@@ -1833,7 +1833,7 @@ class Translation(Document):
         }
 
 
-class Tip(Document):
+class Tip(LabelDocument):
     source = ReferenceField(
         Source, db_field="o", reverse_delete_rule=CASCADE
     )  # 所属原文
@@ -1891,3 +1891,22 @@ class Tip(Document):
             "create_time": self.create_time.isoformat(),
             "edit_time": self.edit_time.isoformat(),
         }
+
+
+protect_methods(
+    File,
+    (
+        "create_source",
+        "clear_all_sources",
+        "clear",
+        "parse",
+        "activate_revision",
+        "upload_real_file",
+        "rename",
+        "move_to",
+    ),
+)
+protect_methods(
+    Source, ("copy", "clear", "move_ahead", "create_translation", "create_tip")
+)
+protect_methods(Translation, ("select", "unselect", "clear"))
